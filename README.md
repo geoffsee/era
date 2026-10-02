@@ -15,19 +15,43 @@ Put two local extracts in `historical-data/`. `bun test` and `bun start` read th
 - `pr_token_usage_dataset.json` — agent token totals per pull request. Schema: [`historical-data/pr_token_usage_dataset.schema.json`](historical-data/pr_token_usage_dataset.schema.json).
 - `pr_cicd_dataset.json` — GitHub check runs, commit statuses, and the CI wall-clock span for those same pull requests. Schema: [`historical-data/pr_cicd_dataset.schema.json`](historical-data/pr_cicd_dataset.schema.json).
 
-The files join on `pr_number`. Build the token file from agent transcripts. Build the CI file from the GitHub API. A pull request missing from the CI file counts as zero failed jobs, zero successful jobs, and zero CI seconds.
+The files join on `pr_number`. Build the token file from Antigravity CLI (`agy`) conversation databases. Build the CI file from the GitHub API. A pull request missing from the CI file counts as zero failed jobs, zero successful jobs, and zero CI seconds.
 
 ### `pr_token_usage_dataset.json`
 
-Top-level object with `metadata`, `orchestration_and_overhead`, and `pull_requests`. Attribute each model response to the pull request whose branch the session edited. Responses that belong to no pull request go in `orchestration_and_overhead`. The estimator reads only `pull_requests`.
+`agy` writes one SQLite database per conversation under `~/.gemini/antigravity-cli/conversations/<conversation_id>.db`. The index is `~/.gemini/antigravity-cli/conversation_summaries.db`.
 
-For each rollup, sum the provider usage of its model responses:
+List the repository's pull requests, then the conversations whose workspace is that checkout:
 
-- `agent_turns_count` is the number of model responses.
-- `uncached_input_tokens` sums uncached input (`usage.input_tokens` on Anthropic).
-- `cache_read_input_tokens` sums cache-read input.
-- `output_tokens` sums output. Thinking tokens are already inside this sum.
-- `thinking_tokens` is that thinking portion, or `0` when the log does not split it out. It is less than or equal to `output_tokens`.
+```bash
+gh pr list --repo OWNER/REPO --state all --limit 150 \
+  --json number,title,headRefName,createdAt,mergedAt,closedAt,state,url
+```
+
+```sql
+SELECT conversation_id, title, step_count
+FROM conversation_summaries
+WHERE workspace_uris LIKE '%REPO%';
+```
+
+On each conversation database, tool steps mark when the session changed pull request. Model steps carry the token counts:
+
+```sql
+SELECT idx, quote(step_payload) FROM steps WHERE step_type = 132;
+SELECT idx, hex(metadata) FROM steps WHERE step_type = 15 AND metadata IS NOT NULL;
+```
+
+`step_type` 132 is a tool call. Walk those payloads in `idx` order and split the timeline on `git checkout`, `gh pr view`, `gh pr diff`, `gh pr checks`, `gh pr merge`, commit messages, and subagent prompts. `step_type` 15 is a model response. Its `metadata` blob is Protobuf: field 1 is uncached prompt tokens, field 5 is prompt-cache reads, field 3 is completion tokens, and field 6 is extended thinking tokens. The same blob names the model.
+
+Attribute each model step to the pull request active at that `idx`. Steps before the first pull-request boundary go in `orchestration_and_overhead`. The estimator reads only `pull_requests`.
+
+For each rollup, sum those model steps:
+
+- `agent_turns_count` is the number of `step_type` 15 rows.
+- `uncached_input_tokens` sums Protobuf field 1.
+- `cache_read_input_tokens` sums Protobuf field 5.
+- `output_tokens` sums field 3 and field 6. Thinking tokens are already inside this sum.
+- `thinking_tokens` is field 6, so it is less than or equal to `output_tokens`.
 - `total_input_tokens` = `uncached_input_tokens` + `cache_read_input_tokens`.
 - `total_tokens` = `total_input_tokens` + `output_tokens`.
 - `models_used` lists the distinct model ids, or `[]` when the pull request has no turns and no tokens.
