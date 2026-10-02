@@ -1,13 +1,7 @@
-import { Octokit, App } from "octokit";
+import { Octokit } from "octokit";
 
-// Create a personal access token at https://github.com/settings/tokens/new?scopes=repo
-const githubClient = new Octokit({ auth: `personal-access-token123` });
+const githubPat = process.env.GITHUB_PAT ?? process.env.GH_TOKEN;
 
-// Compare: https://docs.github.com/en/rest/reference/users#get-the-authenticated-user
-const {
-    data: { login },
-} = await githubClient.rest.users.getAuthenticated();
-console.log("Logged in as: %s", login);
-
+const githubClient = new Octokit({ auth: githubPat });
 
 export default githubClient;

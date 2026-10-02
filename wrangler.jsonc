@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "era-tracker",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "era-tracker",
+      "database_id": "0e3ff188-24c0-4d48-9090-4f621e74490c",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

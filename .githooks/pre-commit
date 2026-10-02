@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+cd "$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+
+bun run typecheck
+bun run format
+bun run lint
+
+if git diff --cached --name-only -- actions/track-estimate/src | grep -q .; then
+  (
+    cd actions/track-estimate
+    bunx terella-action build src/index.ts dist --minify
+    rm -f dist/index.js.map
+  )
+  git add -A -- actions/track-estimate/dist
+fi

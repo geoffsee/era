@@ -3,7 +3,7 @@ node_modules
 
 # output
 out
-dist
+/dist
 *.tgz
 
 # code coverage
@@ -21,6 +21,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.test.local
 .env.production.local
 .env.local
+.env.secrets
 
 # caches
 .eslintcache
@@ -35,4 +36,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 
 # Project Specific
-historical-data/*.json
+# Calibration extracts stay local. The schema files in this directory are committed.
+historical-data/pr_token_usage_dataset.json
+historical-data/pr_cicd_dataset.json
+.dev.vars
+.wrangler

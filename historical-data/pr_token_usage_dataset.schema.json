@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pr_token_usage_dataset.schema.json",
+  "title": "Pull request agent token usage",
+  "description": "Agent-session token totals for one repository. historical-data/pr_cicd_dataset.json joins on pr_number. The estimator reads pull_requests[].pr_number, title, state, agent_turns_count, and the six integer token_usage fields. Formatted strings are display-only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metadata", "orchestration_and_overhead", "pull_requests"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_at",
+        "repository",
+        "total_prs_tracked",
+        "prs_with_token_activity",
+        "total_agent_turns",
+        "total_tokens_consumed"
+      ],
+      "properties": {
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC time the file was written."
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/\\s]+/[^/\\s]+$",
+          "description": "GitHub owner/name the pull requests belong to.",
+          "examples": ["geoffsee/rubix-kube"]
+        },
+        "total_prs_tracked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "pull_requests.length."
+        },
+        "prs_with_token_activity": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pull requests whose total_tokens or agent_turns_count is greater than 0. Orchestration is not included."
+        },
+        "total_agent_turns": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of agent_turns_count across pull_requests and orchestration_and_overhead."
+        },
+        "total_tokens_consumed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of token_usage.total_tokens across pull_requests and orchestration_and_overhead."
+        },
+        "formatted_grand_total_tokens": {
+          "type": "string",
+          "description": "Display form of total_tokens_consumed, such as 1.81B."
+        }
+      }
+    },
+    "orchestration_and_overhead": {
+      "$ref": "#/$defs/usageRollup",
+      "description": "Agent turns that are not attributed to a pull request. The estimator does not read this object. Its turns and tokens are included in the metadata totals."
+    },
+    "pull_requests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pullRequest" }
+    }
+  },
+  "$defs": {
+    "tokenUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Sums of provider usage over the agent turns in this rollup. total_input_tokens = uncached_input_tokens + cache_read_input_tokens. total_tokens = total_input_tokens + output_tokens. thinking_tokens is the thinking portion already included in output_tokens, or 0 when the log does not split thinking from output.",
+      "required": [
+        "uncached_input_tokens",
+        "cache_read_input_tokens",
+        "total_input_tokens",
+        "output_tokens",
+        "thinking_tokens",
+        "total_tokens"
+      ],
+      "properties": {
+        "uncached_input_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of uncached input tokens. On Anthropic responses this is usage.input_tokens."
+        },
+        "cache_read_input_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of cache-read input tokens (usage.cache_read_input_tokens)."
+        },
+        "total_input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of output tokens, including thinking tokens."
+        },
+        "thinking_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Thinking tokens included in output_tokens. Must be less than or equal to output_tokens."
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "formatted_total_tokens": { "type": "string" },
+        "formatted_input_tokens": { "type": "string" },
+        "formatted_cache_read_tokens": { "type": "string" },
+        "formatted_output_tokens": { "type": "string" }
+      }
+    },
+    "usageRollup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_turns_count", "models_used", "token_usage"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "description": "Label for the orchestration rollup."
+        },
+        "agent_turns_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of model responses."
+        },
+        "models_used": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Distinct model ids. Empty when agent_turns_count and total_tokens are both 0.",
+          "examples": [["claude-sonnet-4-6"]]
+        },
+        "token_usage": { "$ref": "#/$defs/tokenUsage" }
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pr_number", "title", "state", "agent_turns_count", "models_used", "token_usage"],
+      "properties": {
+        "pr_number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["OPEN", "CLOSED", "MERGED"],
+          "description": "MERGED when merged_at is set. Otherwise the GitHub pull request state, uppercased."
+        },
+        "head_branch": { "type": "string", "description": "head.ref." },
+        "created_at": { "type": "string", "format": "date-time" },
+        "merged_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        },
+        "closed_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        },
+        "url": { "type": "string", "format": "uri", "description": "html_url of the pull request." },
+        "agent_turns_count": { "type": "integer", "minimum": 0 },
+        "models_used": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "token_usage": { "$ref": "#/$defs/tokenUsage" }
+      }
+    }
+  }
+}

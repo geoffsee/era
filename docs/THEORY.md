@@ -1,10 +1,10 @@
-# Agent Era Work Estimation — Formulaic Representations
+# Estimating Work in the Agent Era 
 
 Three distinct estimation logics are in play. The first sizes agent work in its native unit (tokens). The second keeps the existing story-point scale and changes who produces and debates the estimate. The third decomposes agentic cost into token, oversight, and infrastructure streams and maps legacy sizing metrics onto those streams. Each is formalized below from the source logic, not as executable code.
 
 ## 1. Token-threshold sprint sizing
 
-Smith Horn’s practitioner model replaces hour- or point-based t-shirt sizes with fixed token bins, on the claim that agents consume tokens rather than human time, so the planning unit should be the consumption unit.
+Smith Horn’s practitioner model replaces hour- or point-based item sizes with fixed token bins, on the claim that agents consume tokens rather than human time, so the planning unit should be the consumption unit.
 
 Size map:
 
@@ -14,7 +14,7 @@ $$
 1\times 10^{5} & s=\mathrm{S}\\
 2\times 10^{5} & s=\mathrm{M}\\
 4\times 10^{5} & s=\mathrm{L}\\
->4\times 10^{5} & s=\mathrm{XL}
+\gt 4\times 10^{5} & s=\mathrm{XL}
 \end{cases}
 $$
 

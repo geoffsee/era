@@ -1,0 +1,79 @@
+name: Track estimate accuracy
+description: >-
+  Record a prediction or an actual for any repository, then report how close
+  past estimates were. Point api-url at an era tracker.
+inputs:
+  api-url:
+    description: Tracker base URL. GitHub Actions requests an OIDC token for this origin.
+    required: false
+    default: https://era-tracker.seemueller.workers.dev
+  api-token:
+    description: >-
+      Optional static bearer token for callers outside GitHub Actions.
+      Leave empty in a workflow. The action uses the GitHub OIDC token instead.
+    required: false
+    default: ""
+  mode:
+    description: predict, observe, accuracy, or sync. sync records a row when value or records is set, then prints accuracy.
+    required: false
+    default: sync
+  repository:
+    description: owner/name. Defaults to the GitHub repository running this action.
+    required: false
+    default: ""
+  subject:
+    description: Tracker subject, such as issue:4 or pr:12. Defaults to the current pull request.
+    required: false
+    default: ""
+  pull-request:
+    description: Pull request number used when subject is empty.
+    required: false
+    default: ""
+  kind:
+    description: prediction or observation. Used by sync when records is empty.
+    required: false
+    default: observation
+  model:
+    description: Estimate model name. Used for predictions.
+    required: false
+    default: token-threshold
+  metric:
+    description: Metric name, such as tokens, story_points, usd, or cicd_seconds.
+    required: false
+    default: tokens
+  value:
+    description: Predicted or actual number.
+    required: false
+    default: ""
+  source:
+    description: Label stored with an observation.
+    required: false
+    default: github-action
+  records:
+    description: >-
+      JSON array of rows. Each row has kind, subject, metric, and value.
+      Predictions also have model. When set, this replaces the single value inputs.
+    required: false
+    default: ""
+  comment:
+    description: Post the accuracy table as a pull request comment.
+    required: false
+    default: "false"
+  github-token:
+    description: Token used for the comment. Usually secrets.GITHUB_TOKEN.
+    required: false
+    default: ""
+  github-api-url:
+    description: GitHub API base URL.
+    required: false
+    default: https://api.github.com
+outputs:
+  stored:
+    description: Rows stored in this run.
+  report:
+    description: Markdown accuracy table.
+  scales:
+    description: JSON array of model, metric, and scale.
+runs:
+  using: node20
+  main: dist/index.js

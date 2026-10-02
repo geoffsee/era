@@ -1,0 +1,33 @@
+name: track-estimate
+
+on:
+  workflow_dispatch:
+    inputs:
+      value:
+        description: Observed value, such as a token count
+        required: false
+        type: string
+      metric:
+        description: Metric name
+        required: false
+        default: tokens
+        type: string
+  pull_request:
+    types: [closed]
+
+jobs:
+  track:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./actions/track-estimate
+        with:
+          mode: sync
+          metric: ${{ inputs.metric || 'tokens' }}
+          value: ${{ inputs.value }}
+          comment: "true"
+          github-token: ${{ github.token }}

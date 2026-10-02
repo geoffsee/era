@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pr_cicd_dataset.schema.json",
+  "title": "Pull request CI checks and wall-clock duration",
+  "description": "One element per pull request. Each element lists the GitHub check runs and commit statuses on that pull request's head SHA, plus the wall-clock span the cost model reads as cicd_seconds. Join to pr_token_usage_dataset.json on pr_number. A pull request missing from this array is treated as zero failed jobs, zero successful jobs, and zero CI seconds.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/pullRequest" },
+  "$defs": {
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pr_number",
+        "title",
+        "state",
+        "author",
+        "created_at",
+        "merged_at",
+        "closed_at",
+        "head_branch",
+        "head_sha",
+        "url",
+        "cicd_summary",
+        "jobs"
+      ],
+      "properties": {
+        "pr_number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["OPEN", "CLOSED", "MERGED"],
+          "description": "MERGED when merged_at is set. Otherwise the GitHub pull request state, uppercased."
+        },
+        "author": { "type": "string", "description": "user.login of the pull request author." },
+        "created_at": { "type": "string", "format": "date-time" },
+        "merged_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        },
+        "closed_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        },
+        "head_branch": { "type": "string", "description": "head.ref." },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "head.sha. Check runs and statuses are read for this commit."
+        },
+        "url": { "type": "string", "format": "uri" },
+        "cicd_summary": { "$ref": "#/$defs/summary" },
+        "jobs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/job" },
+          "description": "Check runs and commit statuses for head_sha. Both are included. Order is not significant."
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Counts are over jobs. SUCCESS, FAILURE, and CANCELLED each have their own counter. SKIPPED, NEUTRAL, and PENDING share skipped_or_neutral_count. Any other conclusion counts only toward total_jobs_count. overall_status is FAILURE when failed_jobs_count is greater than 0, and SUCCESS otherwise. total_cicd_duration_seconds is the rounded wall-clock span from the earliest started_at to the latest completed_at among jobs that have started_at. It is the span across jobs, and the sum of duration_seconds is a different number. The estimator reads failed_jobs_count, successful_jobs_count, and total_cicd_duration_seconds.",
+      "required": [
+        "overall_status",
+        "total_jobs_count",
+        "successful_jobs_count",
+        "failed_jobs_count",
+        "cancelled_jobs_count",
+        "skipped_or_neutral_count",
+        "earliest_job_started_at",
+        "latest_job_completed_at",
+        "total_cicd_duration_seconds",
+        "pr_created_to_cicd_completed_seconds",
+        "time_to_merge_seconds"
+      ],
+      "properties": {
+        "overall_status": { "type": "string", "enum": ["SUCCESS", "FAILURE"] },
+        "total_jobs_count": { "type": "integer", "minimum": 0, "description": "jobs.length." },
+        "successful_jobs_count": { "type": "integer", "minimum": 0 },
+        "failed_jobs_count": { "type": "integer", "minimum": 0 },
+        "cancelled_jobs_count": { "type": "integer", "minimum": 0 },
+        "skipped_or_neutral_count": { "type": "integer", "minimum": 0 },
+        "earliest_job_started_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }],
+          "description": "Minimum started_at. Null when no job has started_at."
+        },
+        "latest_job_completed_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }],
+          "description": "Maximum completed_at among jobs that have started_at."
+        },
+        "total_cicd_duration_seconds": {
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }],
+          "description": "Round((latest_job_completed_at - earliest_job_started_at) / 1000). Null when either endpoint is null. This is the value stored as cicdSeconds."
+        },
+        "total_cicd_duration_formatted": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }],
+          "description": "Display form of total_cicd_duration_seconds: 37s, 6m 23s, or 1h 2m 3s. Seconds are always included."
+        },
+        "pr_created_to_cicd_completed_seconds": {
+          "anyOf": [{ "type": "integer" }, { "type": "null" }],
+          "description": "Round((latest_job_completed_at - created_at) / 1000). Null when latest_job_completed_at is null."
+        },
+        "pr_created_to_cicd_completed_formatted": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "time_to_merge_seconds": {
+          "anyOf": [{ "type": "integer" }, { "type": "null" }],
+          "description": "Round((merged_at - created_at) / 1000). Null when merged_at is null."
+        },
+        "time_to_merge_formatted": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "name",
+        "workflow",
+        "status",
+        "conclusion",
+        "started_at",
+        "completed_at",
+        "duration_seconds",
+        "details_url"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["CheckRun", "StatusContext"],
+          "description": "CheckRun is a check run on head_sha (GET /repos/{owner}/{repo}/commits/{sha}/check-runs). StatusContext is one entry of the combined commit status (GET /repos/{owner}/{repo}/commits/{sha}/status, field statuses)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Check run name, or the status context string."
+        },
+        "workflow": {
+          "type": "string",
+          "description": "For a check run whose details_url is https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}, the name of that Actions workflow run. For any other check run, External / Unspecified. For a status context, Status Context."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["QUEUED", "IN_PROGRESS", "COMPLETED"],
+          "description": "Uppercased check-run status. Status contexts are recorded as COMPLETED."
+        },
+        "conclusion": {
+          "type": "string",
+          "description": "Uppercased check-run conclusion or status state. Observed values are SUCCESS, FAILURE, CANCELLED, SKIPPED, NEUTRAL, and PENDING. GitHub also uses TIMED_OUT, ACTION_REQUIRED, STALE, STARTUP_FAILURE, and ERROR.",
+          "examples": ["SUCCESS", "FAILURE", "CANCELLED", "SKIPPED", "NEUTRAL", "PENDING"]
+        },
+        "started_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }],
+          "description": "Check run started_at. Null for a status context, which has no start time."
+        },
+        "completed_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }],
+          "description": "Check run completed_at, or the status updated_at."
+        },
+        "duration_seconds": {
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }],
+          "description": "Round((completed_at - started_at) / 1000) when both timestamps exist and the difference is zero or positive. Null when a timestamp is missing or the job completed before it started."
+        },
+        "duration_formatted": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }],
+          "description": "Same display form as total_cicd_duration_formatted. Null when duration_seconds is null."
+        },
+        "details_url": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }],
+          "description": "Check run details_url, or the status target_url."
+        }
+      }
+    }
+  }
+}
