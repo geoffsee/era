@@ -109,7 +109,7 @@ The repository does not need a story-point field, labels, assignees, or a GitHub
 
 | Subject | What it identifies |
 | --- | --- |
-| `issue:<roadmap number>` | The roadmap issue. Metrics are `tokens` for E_raw, `tokens_effective` for E_eff, `story_points`, and `usd`. |
+| `issue:<roadmap number>` | The roadmap issue. Metrics are `tokens` for E_raw, `tokens_effective` for E_eff, `story_points`, and `usd`. `usd` is ACEM Total_Cost, including the Codex review loop. |
 | `issue:<child number>` | One child issue. Metrics are `tokens` and `story_points`. |
 | `pr:<number>` | One pull request. Historical ingest records `tokens` for a merged pull request with token usage. |
 

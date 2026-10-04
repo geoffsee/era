@@ -39,5 +39,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Calibration extracts stay local. The schema files in this directory are committed.
 historical-data/pr_token_usage_dataset.json
 historical-data/pr_cicd_dataset.json
+historical-data/pr_review_dataset.json
 .dev.vars
 .wrangler

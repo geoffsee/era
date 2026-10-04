@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pr_review_dataset.schema.json",
+  "title": "Codex review-loop usage by pull request",
+  "description": "Token splits and extra GitHub Actions spans for Codex sessions that reviewed pull requests or addressed review comments. Join to pr_token_usage_dataset.json on pr_number. A pull request missing from pull_requests was not named by a review session. Unattributed tokens are review-loop usage that named no pull request. The estimator imputes a per-child review load from the covered pull requests and scales the unattributed pool with remaining author tokens.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metadata", "sessions", "pull_requests"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_at",
+        "repository",
+        "credit_usd",
+        "speed",
+        "sessions_in_repository",
+        "review_sessions",
+        "review_loop_tokens",
+        "followup_tokens",
+        "inherited_review_tokens",
+        "unattributed_review_tokens",
+        "gaps"
+      ],
+      "properties": {
+        "generated_at": { "type": "string", "format": "date-time" },
+        "repository": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+        "credit_usd": { "type": "number", "minimum": 0 },
+        "speed": { "type": "string", "enum": ["standard"] },
+        "sessions_in_repository": { "type": "integer", "minimum": 0 },
+        "review_sessions": { "type": "integer", "minimum": 0 },
+        "review_loop_tokens": { "type": "integer", "minimum": 0 },
+        "followup_tokens": { "type": "integer", "minimum": 0 },
+        "inherited_review_tokens": { "type": "integer", "minimum": 0 },
+        "unattributed_review_tokens": { "type": "integer", "minimum": 0 },
+        "gaps": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "sessions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/session" }
+    },
+    "pull_requests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pullRequest" }
+    }
+  },
+  "$defs": {
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "parent_id",
+        "role",
+        "model",
+        "attribution",
+        "pull_requests",
+        "started_at",
+        "ended_at",
+        "uncached_input_tokens",
+        "cache_read_input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "priced"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "parent_id": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "role": { "type": "string", "enum": ["review", "followup"] },
+        "model": { "type": "string" },
+        "attribution": { "type": "string", "enum": ["named", "inherited", "unattributed"] },
+        "pull_requests": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+        "started_at": { "type": "string", "format": "date-time" },
+        "ended_at": { "type": "string", "format": "date-time" },
+        "uncached_input_tokens": { "type": "integer", "minimum": 0 },
+        "cache_read_input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "total_tokens": { "type": "integer", "minimum": 0 },
+        "priced": { "type": "boolean" }
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pr_number",
+        "review_tokens",
+        "priced_review_tokens",
+        "review_cost_usd",
+        "review_cicd_seconds",
+        "models"
+      ],
+      "properties": {
+        "pr_number": { "type": "integer", "minimum": 1 },
+        "review_tokens": { "type": "integer", "minimum": 0 },
+        "priced_review_tokens": { "type": "integer", "minimum": 0 },
+        "review_cost_usd": { "type": "number", "minimum": 0 },
+        "review_cicd_seconds": { "type": "integer", "minimum": 0 },
+        "models": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

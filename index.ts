@@ -1,7 +1,7 @@
 import { estimateRoadmap } from "./src/estimator.ts";
 import { renderEstimate } from "./src/format.ts";
 import { loadRoadmapIssue } from "./src/github-data-repository.ts";
-import { loadHistoricalPullRequests } from "./src/historical-data-repository.ts";
+import { loadHistoricalData } from "./src/historical-data-repository.ts";
 
 const repository = process.argv[2];
 if (!repository || !/^[^/\s]+\/[^/\s]+$/.test(repository)) {
@@ -10,14 +10,15 @@ if (!repository || !/^[^/\s]+\/[^/\s]+$/.test(repository)) {
 }
 const [owner, repo] = repository.split("/") as [string, string];
 
-const history = await loadHistoricalPullRequests();
+const history = await loadHistoricalData();
 const roadmap = await loadRoadmapIssue(owner, repo);
 const estimate = estimateRoadmap({
     issueNumber: roadmap.number,
     issueTitle: roadmap.title,
     issueBody: roadmap.body,
     titles: roadmap.titles,
-    history,
+    history: history.pullRequests,
+    reviewPool: history.reviewPool,
 });
 
 console.log(renderEstimate(estimate, repository));

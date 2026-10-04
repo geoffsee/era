@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
-import { tokenBacktest } from "./tracking/backtest.ts";
 import { estimateRoadmap, type RoadmapEstimate } from "./estimator.ts";
-import { loadHistoricalPullRequests } from "./historical-data-repository.ts";
 import { loadRoadmapIssue } from "./github-data-repository.ts";
+import { loadHistoricalData, loadHistoricalPullRequests } from "./historical-data-repository.ts";
+import { tokenBacktest } from "./tracking/backtest.ts";
 import type { AccuracyReport, Observation, Prediction } from "./tracking/model.ts";
 
 type Io = {
@@ -150,7 +150,7 @@ function row(
 async function loadEstimate(repository: string, flags: Map<string, string>): Promise<RoadmapEstimate> {
     const [owner, repo] = repository.split("/");
     if (!owner || !repo) throw new Error("repository must be owner/name");
-    const history = await loadHistoricalPullRequests(flags.get("history") ?? "historical-data");
+    const history = await loadHistoricalData(flags.get("history") ?? "historical-data");
     if (flags.has("body") && flags.has("titles")) {
         const titles = new Map<number, string>(
             Object.entries(JSON.parse(readFileSync(flags.get("titles")!, "utf8")) as Record<string, string>).map(
@@ -162,7 +162,8 @@ async function loadEstimate(repository: string, flags: Map<string, string>): Pro
             issueTitle: flags.get("title") ?? "Roadmap",
             issueBody: readFileSync(flags.get("body")!, "utf8"),
             titles,
-            history,
+            history: history.pullRequests,
+            reviewPool: history.reviewPool,
         });
     }
     const issue = await loadRoadmapIssue(owner, repo);
@@ -171,7 +172,8 @@ async function loadEstimate(repository: string, flags: Map<string, string>): Pro
         issueTitle: issue.title,
         issueBody: flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body,
         titles: issue.titles,
-        history,
+        history: history.pullRequests,
+        reviewPool: history.reviewPool,
     });
 }
 

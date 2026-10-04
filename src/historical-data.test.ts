@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadHistoricalPullRequests } from "./historical-data-repository.ts";
+import { loadHistoricalData, loadHistoricalPullRequests } from "./historical-data-repository.ts";
 
 const dataDirectory = join(import.meta.dir, "..", "historical-data");
 
@@ -263,7 +263,36 @@ describe("historical data schemas", () => {
                 failedJobs: 0,
                 successfulJobs: 1,
                 cicdSeconds: 20,
+                reviewTokens: 0,
             });
+            await Bun.write(
+                join(directory, "pr_review_dataset.json"),
+                JSON.stringify({
+                    metadata: {
+                        unattributed_review_tokens: 5,
+                        followup_tokens: 1,
+                        review_loop_tokens: 9,
+                        inherited_review_tokens: 0,
+                        gaps: [],
+                    },
+                    pull_requests: [
+                        {
+                            pr_number: 7,
+                            review_tokens: 4,
+                            priced_review_tokens: 4,
+                            review_cost_usd: 0.2,
+                            review_cicd_seconds: 15,
+                        },
+                    ],
+                }),
+            );
+            const joined = await loadHistoricalData(directory);
+            expect(joined.pullRequests[0]).toMatchObject({
+                reviewTokens: 4,
+                reviewCostUsd: 0.2,
+                reviewCicdSeconds: 15,
+            });
+            expect(joined.reviewPool.unattributedReviewTokens).toBe(5);
         } finally {
             await rm(directory, { recursive: true, force: true });
         }
@@ -361,5 +390,23 @@ describe("historical data schemas", () => {
                 );
             }
         }
+
+        const reviewPath = join(dataDirectory, "pr_review_dataset.json");
+        if (!(await Bun.file(reviewPath).exists())) return;
+        const reviewSchema = (await Bun.file(
+            join(dataDirectory, "pr_review_dataset.schema.json"),
+        ).json()) as JsonSchema;
+        const review = await Bun.file(reviewPath).json();
+        validate(reviewSchema, reviewSchema, review, "$");
+        const sessionTokens = review.sessions.reduce(
+            (total: number, session: { total_tokens: number }) => total + session.total_tokens,
+            0,
+        );
+        const attributedTokens = review.pull_requests.reduce(
+            (total: number, pullRequest: { review_tokens: number }) => total + pullRequest.review_tokens,
+            0,
+        );
+        expect(sessionTokens).toBe(review.metadata.review_loop_tokens);
+        expect(attributedTokens + review.metadata.unattributed_review_tokens).toBe(review.metadata.review_loop_tokens);
     });
 });

@@ -17,7 +17,25 @@ Put two local extracts in `historical-data/`. `bun test` and `bun start` read th
 
 The files join on `pr_number`. Build the token file from Antigravity CLI (`agy`) conversation databases. Build the CI file from the GitHub API. A pull request missing from the CI file counts as zero failed jobs, zero successful jobs, and zero CI seconds.
 
+`pr_review_dataset.json` is optional. Build it from local Codex sessions. A pull request missing from it counts as no attributed review. Schema: [`historical-data/pr_review_dataset.schema.json`](historical-data/pr_review_dataset.schema.json).
+
+```bash
+bun src/extract-codex-review.ts owner/name
+```
+
+The extractor reads `~/.codex/state_*.sqlite` and the session rollouts for that `owner/name`. A session counts when its title or first message asks for a pull-request review, or asks to address review comments. Spawned subagents inherit that role. Tokens are the last thread usage record. Pull request numbers come from the request (`PR #N`, `**#N**`, or a pull URL) and from `gh pr` commands the session actually ran. A session that names several pull requests is split evenly across them. Review CI is the wall-clock span of completed GitHub Actions runs on earlier SHAs of that pull request's head branch that start during one of those sessions. The final head SHA stays in the CI file when that file already has the pull request. `gh` has to be authenticated for the CI pass. If it is not, the token rows are still written and the gap is recorded on the file.
+
+When a reviewed pull request is also in the author-token extract, the forecast uses the median review tokens per author token. When the reviewed pull requests are newer than that extract, each remaining child is charged the median review load of those pull requests instead. Rebuild the author-token extract to replace that median with the ratio.
+
 ### `pr_token_usage_dataset.json`
+
+Build both extracts with:
+
+```bash
+bun src/extract-agy-usage.ts owner/name
+```
+
+The command reads `~/.gemini/antigravity-cli`. A conversation counts when its workspace path contains the repository name, and so does every subagent it spawned. Each model step is attributed to the pull request selected by a `gh pr` command, a `git checkout` of that pull request's head branch, the `On branch` line printed by those commands, or a subagent task that names exactly one pull request. Steps before the first of those boundaries stay in `orchestration_and_overhead`. A pull request whose head SHA is already in `pr_cicd_dataset.json` keeps that CI row. A new head SHA is read from the GitHub API. `gh` has to be authenticated.
 
 `agy` writes one SQLite database per conversation under `~/.gemini/antigravity-cli/conversations/<conversation_id>.db`. The index is `~/.gemini/antigravity-cli/conversation_summaries.db`.
 
@@ -120,7 +138,7 @@ The table has three models from `docs/THEORY.md`. The sources are under [Bibliog
 
 - **Token-threshold** sizes the remaining child issues in tokens. `E_raw` is the sum. `E_eff` is the longest dependency path.
 - **SEEAgent** negotiates story points from the historical token scale.
-- **ACEM** prices tokens, human review, and CI minutes.
+- **ACEM** prices tokens, human review, CI minutes, and the Codex review loop.
 
 ```bash
 export GITHUB_PAT=github_pat_...

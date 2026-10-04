@@ -1,4 +1,10 @@
-import { epicNumberFromTitle, isCalibrationSample, type HistoricalPullRequest } from "./historical-data-repository.ts";
+import {
+    EMPTY_REVIEW_POOL,
+    epicNumberFromTitle,
+    type HistoricalPullRequest,
+    isCalibrationSample,
+    type ReviewPool,
+} from "./historical-data-repository.ts";
 import { buildDependencyGraph, isEpicTitle, laneForIssue, parseRoadmap } from "./roadmap.ts";
 import {
     baseTokensFromStoryPoints,
@@ -20,9 +26,9 @@ import {
     revisionFactor,
     storyPointBreaks,
     storyPointsForTokens,
+    type TokenSize,
     tokenSize,
     totalCost,
-    type TokenSize,
 } from "./theory.ts";
 
 /** Claude Sonnet 4.6 list prices, the only model in the historical token log. USD per token. */
@@ -73,6 +79,21 @@ export type Calibration = {
     labels: Map<number, number>;
     epicTokens: Map<number, number>;
     epicPoints: Map<number, number>;
+    reviewCoveredPullRequests: number;
+    reviewCoverage: number;
+    medianReviewTokenRatio: number;
+    medianAbsoluteReviewTokens: number;
+    reviewPricePerToken: number;
+    medianReviewCicdSeconds: number;
+    medianAbsoluteReviewCicdSeconds: number;
+    coveredAuthorTokens: number;
+    unattributedReviewTokens: number;
+    unpairedReviewTokens: number;
+    followupTokenShare: number;
+    inheritedTokenShare: number;
+    epicReviewRatio: Map<number, number>;
+    epicReviewCicdSeconds: Map<number, number>;
+    reviewGaps: string[];
 };
 
 export type ChildEstimate = {
@@ -90,6 +111,9 @@ export type ChildEstimate = {
     literalLlmCost: number;
     hitlCost: number;
     infraCost: number;
+    reviewTokens: number;
+    reviewLlmCost: number;
+    reviewInfraCost: number;
 };
 
 export type Backtest = {
@@ -115,13 +139,21 @@ export type RoadmapEstimate = {
     literalLlmCost: number;
     hitlCost: number;
     infraCost: number;
+    reviewTokens: number;
+    reviewLlmCost: number;
+    reviewInfraCost: number;
+    reviewPoolTokens: number;
+    reviewPoolCost: number;
     totalCost: number;
     illustrativeTokenCost: number;
     backtest: Backtest;
     assumptions: Assumptions;
 };
 
-export function calibrate(history: readonly HistoricalPullRequest[]): Calibration {
+export function calibrate(
+    history: readonly HistoricalPullRequest[],
+    pool: ReviewPool = EMPTY_REVIEW_POOL,
+): Calibration {
     const sample = history.filter(isCalibrationSample);
     if (sample.length === 0) throw new Error("no merged pull requests with token usage");
 
@@ -205,6 +237,82 @@ export function calibrate(history: readonly HistoricalPullRequest[]): Calibratio
         labels,
         epicTokens: new Map([...tokensByEpic].map(([epic, tokens]) => [epic, median(tokens)])),
         epicPoints: new Map([...pointsByEpic].map(([epic, points]) => [epic, nearestOnScale(median(points))])),
+        ...reviewCalibration(history, sample, pool),
+    };
+}
+
+function reviewCalibration(
+    history: readonly HistoricalPullRequest[],
+    sample: readonly HistoricalPullRequest[],
+    pool: ReviewPool,
+): Pick<
+    Calibration,
+    | "reviewCoveredPullRequests"
+    | "reviewCoverage"
+    | "medianReviewTokenRatio"
+    | "medianAbsoluteReviewTokens"
+    | "reviewPricePerToken"
+    | "medianReviewCicdSeconds"
+    | "medianAbsoluteReviewCicdSeconds"
+    | "coveredAuthorTokens"
+    | "unattributedReviewTokens"
+    | "unpairedReviewTokens"
+    | "followupTokenShare"
+    | "inheritedTokenShare"
+    | "epicReviewRatio"
+    | "epicReviewCicdSeconds"
+    | "reviewGaps"
+> {
+    const covered = sample.filter((pullRequest) => (pullRequest.reviewTokens ?? 0) > 0);
+    const unmatched = covered.length === 0 ? pool.unmatchedReviews : [];
+    const ratios = covered.map((pullRequest) => (pullRequest.reviewTokens ?? 0) / pullRequest.totalTokens);
+    const pricedTokens = sum(
+        covered.length > 0
+            ? covered.map((pullRequest) => pullRequest.pricedReviewTokens ?? 0)
+            : unmatched.map((pullRequest) => pullRequest.pricedReviewTokens),
+    );
+    const pricedCost = sum(
+        covered.length > 0
+            ? covered.map((pullRequest) => pullRequest.reviewCostUsd ?? 0)
+            : unmatched.map((pullRequest) => pullRequest.reviewCostUsd),
+    );
+    const ratiosByEpic = new Map<number, number[]>();
+    const cicdByEpic = new Map<number, number[]>();
+    let unpairedReviewTokens = 0;
+    for (const pullRequest of history) {
+        const reviewTokens = pullRequest.reviewTokens ?? 0;
+        if (reviewTokens <= 0 || isCalibrationSample(pullRequest)) continue;
+        unpairedReviewTokens += reviewTokens;
+    }
+    for (const pullRequest of covered) {
+        if (pullRequest.epic === null) continue;
+        const ratio = (pullRequest.reviewTokens ?? 0) / pullRequest.totalTokens;
+        const ratiosForEpic = ratiosByEpic.get(pullRequest.epic) ?? [];
+        ratiosForEpic.push(ratio);
+        ratiosByEpic.set(pullRequest.epic, ratiosForEpic);
+        const cicdForEpic = cicdByEpic.get(pullRequest.epic) ?? [];
+        cicdForEpic.push(pullRequest.reviewCicdSeconds ?? 0);
+        cicdByEpic.set(pullRequest.epic, cicdForEpic);
+    }
+    return {
+        reviewCoveredPullRequests: covered.length,
+        reviewCoverage: sample.length === 0 ? 0 : covered.length / sample.length,
+        medianReviewTokenRatio: ratios.length === 0 ? 0 : median(ratios),
+        medianAbsoluteReviewTokens:
+            unmatched.length === 0 ? 0 : median(unmatched.map((pullRequest) => pullRequest.reviewTokens)),
+        reviewPricePerToken: pricedTokens === 0 ? 0 : pricedCost / pricedTokens,
+        medianReviewCicdSeconds:
+            covered.length === 0 ? 0 : median(covered.map((pullRequest) => pullRequest.reviewCicdSeconds ?? 0)),
+        medianAbsoluteReviewCicdSeconds:
+            unmatched.length === 0 ? 0 : median(unmatched.map((pullRequest) => pullRequest.reviewCicdSeconds)),
+        coveredAuthorTokens: sum(covered.map((pullRequest) => pullRequest.totalTokens)),
+        unattributedReviewTokens: pool.unattributedReviewTokens,
+        unpairedReviewTokens,
+        followupTokenShare: pool.reviewLoopTokens === 0 ? 0 : pool.followupTokens / pool.reviewLoopTokens,
+        inheritedTokenShare: pool.reviewLoopTokens === 0 ? 0 : pool.inheritedReviewTokens / pool.reviewLoopTokens,
+        epicReviewRatio: new Map([...ratiosByEpic].map(([epic, values]) => [epic, median(values)])),
+        epicReviewCicdSeconds: new Map([...cicdByEpic].map(([epic, values]) => [epic, median(values)])),
+        reviewGaps: pool.gaps,
     };
 }
 
@@ -215,11 +323,12 @@ export function estimateRoadmap(input: {
     titles: ReadonlyMap<number, string>;
     history: readonly HistoricalPullRequest[];
     assumptions?: Assumptions;
+    reviewPool?: ReviewPool;
 }): RoadmapEstimate {
     const assumptions = input.assumptions ?? DEFAULT_ASSUMPTIONS;
     const parsed = parseRoadmap(input.issueBody);
     const graph = buildDependencyGraph(parsed.lanes, parsed.gates);
-    const calibration = calibrate(input.history);
+    const calibration = calibrate(input.history, input.reviewPool ?? EMPTY_REVIEW_POOL);
 
     const children: ChildEstimate[] = [];
     let epicCount = 0;
@@ -242,6 +351,13 @@ export function estimateRoadmap(input: {
     const literalLlm = sum(children.map((child) => child.literalLlmCost));
     const hitl = sum(children.map((child) => child.hitlCost));
     const infra = sum(children.map((child) => child.infraCost));
+    const reviewTokens = sum(children.map((child) => child.reviewTokens));
+    const reviewLlm = sum(children.map((child) => child.reviewLlmCost));
+    const reviewInfra = sum(children.map((child) => child.reviewInfraCost));
+    const poolTokens = calibration.unattributedReviewTokens + calibration.unpairedReviewTokens;
+    const reviewPoolTokens =
+        calibration.coveredAuthorTokens === 0 ? poolTokens : poolTokens * (rawTokens / calibration.coveredAuthorTokens);
+    const reviewPoolCost = reviewPoolTokens * calibration.reviewPricePerToken;
 
     return {
         issueNumber: input.issueNumber,
@@ -259,7 +375,12 @@ export function estimateRoadmap(input: {
         literalLlmCost: literalLlm,
         hitlCost: hitl,
         infraCost: infra,
-        totalCost: totalCost(llm, hitl, infra),
+        reviewTokens,
+        reviewLlmCost: reviewLlm,
+        reviewInfraCost: reviewInfra,
+        reviewPoolTokens,
+        reviewPoolCost,
+        totalCost: totalCost(llm, hitl, infra) + reviewLlm + reviewInfra + reviewPoolCost,
         illustrativeTokenCost: rawTokens * calibration.blendedPricePerToken,
         backtest: leaveOneOut(input.history, calibration),
         assumptions,
@@ -293,6 +414,17 @@ function estimateChild(
     const outputTokens = base * calibration.outputShareOfBase;
     const inputTokens = base - outputTokens;
     const scale = tokens / calibration.medianTotalTokens;
+    const reviewRatio =
+        epic !== null && calibration.epicReviewRatio.has(epic)
+            ? calibration.epicReviewRatio.get(epic)!
+            : calibration.medianReviewTokenRatio;
+    const reviewTokens = reviewRatio > 0 ? tokens * reviewRatio : calibration.medianAbsoluteReviewTokens;
+    const reviewCicdSeconds =
+        reviewRatio > 0
+            ? (epic !== null && calibration.epicReviewCicdSeconds.has(epic)
+                  ? calibration.epicReviewCicdSeconds.get(epic)!
+                  : calibration.medianReviewCicdSeconds) * scale
+            : calibration.medianAbsoluteReviewCicdSeconds;
     const priced = {
         inputTokens,
         outputTokens,
@@ -326,6 +458,9 @@ function estimateChild(
             hourlyRate: assumptions.hourlyRateUsd,
         }),
         infraCost: infraCost((calibration.medianCicdSeconds * scale) / 60, LINUX_RUNNER_USD_PER_MINUTE),
+        reviewTokens,
+        reviewLlmCost: reviewTokens * calibration.reviewPricePerToken,
+        reviewInfraCost: infraCost(reviewCicdSeconds / 60, LINUX_RUNNER_USD_PER_MINUTE),
     };
 }
 

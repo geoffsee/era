@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { estimateRoadmap, SONNET_46 } from "./estimator.ts";
 import { renderEstimate } from "./format.ts";
 import {
+    type HistoricalPullRequest,
     isCalibrationSample,
     loadHistoricalPullRequests,
-    type HistoricalPullRequest,
 } from "./historical-data-repository.ts";
 import { buildDependencyGraph, parseRoadmap } from "./roadmap.ts";
 import {
@@ -201,20 +201,136 @@ describe("roadmap estimate", () => {
         expect(estimate.literalLlmCost).toBeCloseTo(0.0045);
         expect(estimate.hitlCost).toBeCloseTo(75);
         expect(estimate.infraCost).toBeCloseTo(0.006);
-        expect(estimate.totalCost).toBeCloseTo(estimate.llmCost + estimate.hitlCost + estimate.infraCost);
+        expect(estimate.totalCost).toBeCloseTo(
+            estimate.llmCost +
+                estimate.hitlCost +
+                estimate.infraCost +
+                estimate.reviewLlmCost +
+                estimate.reviewInfraCost +
+                estimate.reviewPoolCost,
+        );
         expect(estimate.llmCost).toBeCloseTo(estimate.illustrativeTokenCost);
         expect(estimate.illustrativeTokenCost).toBeCloseTo(
             100 * SONNET_46.inputPerToken + 900 * SONNET_46.cacheReadPerToken + 10 * SONNET_46.outputPerToken,
         );
+        expect(estimate.reviewLlmCost).toBe(0);
         expect(renderEstimate(estimate, "octo/example")).toContain("SEEAgent");
+    });
+
+    test("scales Codex review tokens and earlier CI spans with author tokens", () => {
+        const history: HistoricalPullRequest[] = [
+            {
+                number: 1,
+                title: "[E01.01] Historical",
+                state: "MERGED",
+                epic: 1,
+                turns: 10,
+                uncachedInputTokens: 100,
+                cacheReadTokens: 900,
+                totalInputTokens: 1_000,
+                outputTokens: 10,
+                thinkingTokens: 0,
+                totalTokens: 1_010,
+                failedJobs: 0,
+                successfulJobs: 2,
+                cicdSeconds: 60,
+                reviewTokens: 505,
+                pricedReviewTokens: 505,
+                reviewCostUsd: 1.01,
+                reviewCicdSeconds: 120,
+            },
+        ];
+        const estimate = estimateRoadmap({
+            issueNumber: 9,
+            issueTitle: "Tiny roadmap",
+            issueBody: [
+                "| Lane | State | Opens from | Membership, local sequence | Note |",
+                "| --- | --- | --- | --- | --- |",
+                "| T00 baseline | complete | — | #1 | done |",
+                "| T01 next | ready | T00 | #2 | open |",
+                "| Gate | Requires (AND) | Unlocks |",
+                "| --- | --- | --- |",
+                "| C01 start | #1 | #2 |",
+            ].join("\n"),
+            titles: new Map([[2, "[E02.01] Next"]]),
+            history,
+            reviewPool: {
+                unattributedReviewTokens: 101,
+                followupTokens: 0,
+                reviewLoopTokens: 606,
+                inheritedReviewTokens: 0,
+                gaps: [],
+                unmatchedReviews: [],
+            },
+        });
+
+        expect(estimate.children[0]?.tokens).toBe(1_010);
+        expect(estimate.reviewTokens).toBeCloseTo(505);
+        expect(estimate.reviewLlmCost).toBeCloseTo(1.01);
+        expect(estimate.reviewPoolTokens).toBeCloseTo(101);
+        expect(estimate.reviewPoolCost).toBeCloseTo(101 * (1.01 / 505));
+        expect(estimate.reviewInfraCost).toBeCloseTo(0.012);
+        expect(estimate.totalCost).toBeGreaterThan(estimate.llmCost + estimate.hitlCost + estimate.infraCost);
+    });
+
+    test("uses the median review load when reviewed pull requests are missing from the author extract", () => {
+        const history: HistoricalPullRequest[] = [
+            {
+                number: 1,
+                title: "[E01.01] Historical",
+                state: "MERGED",
+                epic: 1,
+                turns: 10,
+                uncachedInputTokens: 100,
+                cacheReadTokens: 900,
+                totalInputTokens: 1_000,
+                outputTokens: 10,
+                thinkingTokens: 0,
+                totalTokens: 1_010,
+                failedJobs: 0,
+                successfulJobs: 2,
+                cicdSeconds: 60,
+            },
+        ];
+        const estimate = estimateRoadmap({
+            issueNumber: 9,
+            issueTitle: "Tiny roadmap",
+            issueBody: [
+                "| Lane | State | Opens from | Membership, local sequence | Note |",
+                "| --- | --- | --- | --- | --- |",
+                "| T00 baseline | complete | — | #1 | done |",
+                "| T01 next | ready | T00 | #2 | open |",
+                "| Gate | Requires (AND) | Unlocks |",
+                "| --- | --- | --- |",
+                "| C01 start | #1 | #2 |",
+            ].join("\n"),
+            titles: new Map([[2, "[E02.01] Next"]]),
+            history,
+            reviewPool: {
+                unattributedReviewTokens: 0,
+                followupTokens: 0,
+                reviewLoopTokens: 300,
+                inheritedReviewTokens: 0,
+                gaps: [],
+                unmatchedReviews: [
+                    { reviewTokens: 100, pricedReviewTokens: 100, reviewCostUsd: 2, reviewCicdSeconds: 60 },
+                    { reviewTokens: 300, pricedReviewTokens: 300, reviewCostUsd: 6, reviewCicdSeconds: 180 },
+                ],
+            },
+        });
+
+        expect(estimate.calibration.medianReviewTokenRatio).toBe(0);
+        expect(estimate.reviewTokens).toBe(200);
+        expect(estimate.reviewLlmCost).toBeCloseTo(4);
+        expect(estimate.reviewInfraCost).toBeCloseTo(0.012);
     });
 
     test("estimates the October 2026 roadmap from the historical datasets", async () => {
         const history = await loadHistoricalPullRequests();
         const sample = history.filter(isCalibrationSample);
-        expect(history).toHaveLength(121);
-        expect(sample).toHaveLength(45);
-        expect(median(sample.map((pullRequest) => pullRequest.totalTokens))).toBe(34_960_134);
+        expect(history).toHaveLength(177);
+        expect(sample).toHaveLength(89);
+        expect(median(sample.map((pullRequest) => pullRequest.totalTokens))).toBe(27_128_411);
 
         const estimate = estimateRoadmap({
             issueNumber: 263,
@@ -232,12 +348,19 @@ describe("roadmap estimate", () => {
         expect(estimate.rawTokens).toBeGreaterThan(estimate.effectiveTokens);
         expect(estimate.criticalPath.at(-1)).toBe(126);
         expect(estimate.criticalPath.length).toBeGreaterThan(1);
-        expect(estimate.children.find((child) => child.issue === 48)?.tokens).toBe(34_960_134);
-        expect(estimate.children.find((child) => child.issue === 89)?.tokens).toBe(44_417_850);
+        expect(estimate.children.find((child) => child.issue === 48)?.tokens).toBe(12_256_088);
+        expect(estimate.children.find((child) => child.issue === 89)?.tokens).toBe(40_678_117.5);
         expect(estimate.children.every((child) => child.size === "XL")).toBe(true);
         expect(estimate.partitions).toBeGreaterThan(estimate.childCount);
-        expect(estimate.totalCost).toBeCloseTo(estimate.llmCost + estimate.hitlCost + estimate.infraCost);
-        expect(estimate.backtest.count).toBe(45);
+        expect(estimate.totalCost).toBeCloseTo(
+            estimate.llmCost +
+                estimate.hitlCost +
+                estimate.infraCost +
+                estimate.reviewLlmCost +
+                estimate.reviewInfraCost +
+                estimate.reviewPoolCost,
+        );
+        expect(estimate.backtest.count).toBe(89);
         expect(estimate.backtest.pred).toBeGreaterThanOrEqual(0);
         expect(estimate.backtest.pred).toBeLessThanOrEqual(1);
 
