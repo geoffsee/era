@@ -1,28 +1,26 @@
 import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { expect, test } from "bun:test";
-import { createControllers } from "./composition.ts";
+import { handleRequest } from "./http.ts";
 
 test("injected controllers retain isolated repositories across interleaved requests", async () => {
     const untouchedAccuracyService = createTestAccuracyService();
     const firstAccuracyService = createTestAccuracyService();
     const secondAccuracyService = createTestAccuracyService();
-    const first = createControllers(firstAccuracyService);
-    const second = createControllers(secondAccuracyService);
-    const record = (controller: typeof first.tracking, subject: string) =>
-        controller.fetch(
+    const record = (accuracyService: typeof firstAccuracyService, subject: string) =>
+        handleRequest(
             new Request("https://era.test/v1/predictions", {
                 method: "POST",
-                headers: { "content-type": "application/json" },
+                headers: { "content-type": "application/json", authorization: "Bearer test" },
                 body: JSON.stringify({
                     predictions: [{ repository: "acme/app", subject, model: "test", metric: "tokens", predicted: 1 }],
                 }),
             }),
-            { identity: { kind: "admin" } },
+            { accuracyService, apiToken: "test" },
         );
     const responses = await Promise.all([
-        record(first.tracking, "issue:1"),
-        record(second.tracking, "issue:2"),
-        record(first.tracking, "issue:3"),
+        record(firstAccuracyService, "issue:1"),
+        record(secondAccuracyService, "issue:2"),
+        record(firstAccuracyService, "issue:3"),
     ]);
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
     expect((await firstAccuracyService.predictions("acme/app")).map((row) => row.subject).sort()).toEqual([

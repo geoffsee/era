@@ -4,8 +4,10 @@ import type { AuthService } from "../services/auth-service.ts";
 import { authFailure } from "../services/auth-service.ts";
 import { ForecastInputError } from "../services/forecast-service.ts";
 import { authenticate, HttpError, type Identity } from "../auth/access.ts";
-import { createControllers } from "./composition.ts";
-import type { AccuracyService } from "../services/accuracy-service.ts";
+import { useContainer } from "@di-framework/core/container";
+import { ForecastController } from "../controllers/forecast-controller.ts";
+import { TrackingController } from "../controllers/tracking-controller.ts";
+import { AccuracyService } from "../services/accuracy-service.ts";
 
 export type TrackerDeps = {
     accuracyService: AccuracyService;
@@ -34,10 +36,11 @@ export async function handleRequest(request: Request, deps: TrackerDeps): Promis
         }
     }
     try {
-        const controllers = createControllers(deps.accuracyService);
-        const forecast = await controllers.forecast.handle(request, identity);
+        const container = useContainer().fork();
+        container.registerFactory(AccuracyService, () => deps.accuracyService, { singleton: false });
+        const forecast = await container.resolve(ForecastController).handle(request, identity);
         if (forecast) return forecast;
-        const response = await controllers.tracking.fetch(request, { identity });
+        const response = await container.resolve(TrackingController).fetch(request, { identity });
         return response ?? json({ error: "not found" }, { status: 404 });
     } catch (error) {
         return failure(error);

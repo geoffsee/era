@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import { afterEach } from "bun:test";
-import { createAccuracyService } from "../../src/app/composition.ts";
+import { useContainer } from "@di-framework/core/container";
+import { AccuracyService } from "../../src/services/accuracy-service.ts";
+import { SQL_DATABASE, type SqlDatabase } from "../../src/persistence/database.ts";
 import { SCHEMA_SQL } from "../../src/persistence/schema.ts";
 import { BunSqlDatabase } from "../../src/persistence/sqlite.ts";
 
@@ -9,9 +11,14 @@ afterEach(() => {
     for (const database of databases.splice(0)) database.close();
 });
 
-export function createTestAccuracyService() {
-    const database = new Database(":memory:");
-    databases.push(database);
-    for (const sql of SCHEMA_SQL) database.run(sql);
-    return createAccuracyService(new BunSqlDatabase(database));
+export function createTestAccuracyService(db?: SqlDatabase) {
+    if (!db) {
+        const database = new Database(":memory:");
+        databases.push(database);
+        for (const sql of SCHEMA_SQL) database.run(sql);
+        db = new BunSqlDatabase(database);
+    }
+    const container = useContainer().fork();
+    container.registerFactory(SQL_DATABASE, () => db!, { singleton: false });
+    return container.resolve(AccuracyService);
 }

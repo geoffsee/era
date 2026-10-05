@@ -1,9 +1,10 @@
 import { ensureForecastSchema } from "../persistence/schema.ts";
-import { createAccuracyService } from "./composition.ts";
+import { useContainer } from "@di-framework/core/container";
+import { AccuracyService } from "../services/accuracy-service.ts";
 import { type AuthConfig, AuthService, authFailure } from "../services/auth-service.ts";
 import { AuthStore } from "../repositories/auth-store.ts";
 import { handleRequest } from "./http.ts";
-import type { SqlDatabase } from "../persistence/database.ts";
+import { SQL_DATABASE, type SqlDatabase } from "../persistence/database.ts";
 
 export interface Env extends Partial<AuthConfig> {
     DB: SqlDatabase;
@@ -13,7 +14,9 @@ export interface Env extends Partial<AuthConfig> {
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
-        const accuracyService = createAccuracyService(env.DB);
+        const container = useContainer().fork();
+        container.registerFactory(SQL_DATABASE, () => env.DB, { singleton: false });
+        const accuracyService = container.resolve(AccuracyService);
         await ensureForecastSchema(env.DB);
         let auth: AuthService | undefined;
         if (env.PUBLIC_API_URL) {

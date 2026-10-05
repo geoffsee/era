@@ -1,6 +1,6 @@
+import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { createAccuracyService } from "../app/composition.ts";
 import { CompositeSqlAdapter } from "../persistence/composite-sql-adapter.ts";
 import { PredictionRepository } from "./prediction-repository.ts";
 import { SCHEMA_SQL } from "../persistence/schema.ts";
@@ -54,7 +54,7 @@ test("framework repository preserves pre-existing composite rows, upserts, filte
         expect(await repository.delete(id("first"))).toBe(false);
         expect((await repository.findAll()).length).toBe(2);
         expect(await repository.findById(id("first", "other/app"))).not.toBeNull();
-        const accuracyService = createAccuracyService(db);
+        const accuracyService = createTestAccuracyService(db);
         expect(await accuracyService.predictions("acme/app")).toEqual([
             { ...prediction, model: "second", predicted: 20 },
         ]);

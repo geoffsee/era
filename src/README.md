@@ -17,7 +17,7 @@
 | `persistence/` | Shared database contracts, SQL adapters, and schema initialization |
 
 Tests live beside the behavior they verify. Integration tests may exercise several domains.
-Dependency registration belongs in `app/composition.ts`; controllers receive services and services receive repositories through constructor injection. Domain repositories own their queries; shared persistence code has no dependency on tracking or authentication.
+Request-specific dependency registration belongs at the Worker and HTTP entry points; controllers receive services and services receive repositories through constructor injection. Domain repositories own their queries; shared persistence code has no dependency on tracking or authentication.
 
 `app/worker.ts` is the Worker entry point. `cli/bin.ts` is the bundled npm executable; `cli/cli.ts` can also run directly during development. The root `index.ts` retains the `bun start` convenience command.
 

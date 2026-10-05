@@ -1,4 +1,3 @@
-import { createAccuracyService } from "../app/composition.ts";
 import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { expect, test } from "bun:test";
 import { handleRequest } from "../app/http.ts";
@@ -173,7 +172,7 @@ test("recording requires a real issue identity, while saved-snapshot calculation
 });
 
 test("storage failures return a server error without exposing database internals", async () => {
-    const accuracyService = createAccuracyService({
+    const accuracyService = createTestAccuracyService({
         prepare() {
             throw new Error("SQL constraint must be present: private/path");
         },
