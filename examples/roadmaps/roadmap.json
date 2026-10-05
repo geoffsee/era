@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "items": [
+    { "issue": 10, "title": "Storage delivery", "kind": "epic", "group": "Platform" },
+    {
+      "issue": 12,
+      "title": "Define the storage interface",
+      "parent": 10,
+      "group": "Platform",
+      "state": "complete",
+      "acceptance": { "source": "Accepted interface review in PR #40" }
+    },
+    { "issue": 13, "title": "Implement the storage adapter", "parent": 10, "group": "Platform", "state": "active" },
+    { "issue": 14, "title": "Qualify the release", "group": "Release" }
+  ],
+  "dependencies": [{ "before": 12, "after": 13 }],
+  "milestones": [{ "id": "storage-ready", "requires": [10], "unlocks": [14] }]
+}

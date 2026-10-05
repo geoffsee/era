@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "roadmap": {
+    "format": "markdown-table",
+    "section": "Delivery plan",
+    "columns": {
+      "issues": "Tickets",
+      "title": "Description",
+      "group": "Workstream",
+      "state": "Status",
+      "dependencies": "Blocked by",
+      "acceptance": "Acceptance evidence"
+    },
+    "states": {
+      "Todo": "planned",
+      "Doing": "active",
+      "Done": "complete"
+    },
+    "issueReferences": "github"
+  }
+}

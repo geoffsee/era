@@ -3,6 +3,7 @@ import type { ForecastRequest, JsonEstimate } from "./forecast-contract.ts";
 import { parseForecastPlan } from "./forecast-plan.ts";
 import { renderEstimate } from "./format.ts";
 import { EMPTY_REVIEW_POOL, type HistoricalData } from "./history.ts";
+import { parseRoadmapConfig, resolveRoadmap } from "./roadmap-format.ts";
 import { assertRepository, type Prediction } from "./tracking/model.ts";
 
 export class ForecastInputError extends Error {}
@@ -14,13 +15,41 @@ export function parseForecastRequest(value: unknown): ForecastRequest {
     integer(roadmap.number, "roadmap number", 0);
     text(roadmap.title, "roadmap title");
     text(roadmap.body, "roadmap body");
-    issueStrings(roadmap.titles, "roadmap titles");
+    const roadmapConfig = asInput(() => parseRoadmapConfig(input.roadmapConfig));
+    issueStrings(roadmap.titles ?? {}, "roadmap titles");
     if (roadmap.states !== undefined) issueStrings(roadmap.states, "roadmap states");
     const history = parseHistory(input.history, repository);
     const record = recordField(input.record);
     if (record && roadmap.number === 0) throw new ForecastInputError("recording requires a real roadmap issue number");
     const plan = input.plan === undefined ? undefined : asInput(() => parseForecastPlan(input.plan));
-    return { repository, roadmap: roadmap as ForecastRequest["roadmap"], history, record, plan };
+    return { repository, roadmap: roadmap as ForecastRequest["roadmap"], history, record, plan, roadmapConfig };
+}
+
+export function validateRoadmapRequest(value: unknown) {
+    const input = object(value, "roadmap validation request");
+    const repository = repositoryField(input.repository);
+    const source = object(input.roadmap, "roadmap");
+    text(source.body, "roadmap body");
+    const titles = source.titles ?? {};
+    issueStrings(titles, "roadmap titles");
+    return asInput(() => {
+        const config = parseRoadmapConfig(input.roadmapConfig);
+        const result = resolveRoadmap(
+            source.body as string,
+            new Map(Object.entries(titles as Record<string, string>).map(([id, title]) => [Number(id), title])),
+            config,
+        );
+        return {
+            repository,
+            format: config.format,
+            roadmap: result.roadmap,
+            sourceGates: result.sourceGates,
+            diagnostics: result.graph.diagnostics,
+            executionDependencies: [...result.graph.predecessors].flatMap(([after, before]) =>
+                [...before].map((before) => ({ before, after })),
+            ),
+        };
+    });
 }
 
 export function calculateForecast(input: ForecastRequest, now: string) {
@@ -29,7 +58,7 @@ export function calculateForecast(input: ForecastRequest, now: string) {
             issueNumber: input.roadmap.number,
             issueTitle: input.roadmap.title,
             issueBody: input.roadmap.body,
-            titles: new Map(Object.entries(input.roadmap.titles).map(([id, title]) => [Number(id), title])),
+            titles: new Map(Object.entries(input.roadmap.titles ?? {}).map(([id, title]) => [Number(id), title])),
             issueStates: input.roadmap.states
                 ? new Map(Object.entries(input.roadmap.states).map(([id, state]) => [Number(id), state]))
                 : undefined,
@@ -38,6 +67,7 @@ export function calculateForecast(input: ForecastRequest, now: string) {
             authorOverhead: input.history.authorOverhead,
             historyGeneratedAt: input.history.generatedAt,
             plan: input.plan,
+            roadmapConfig: input.roadmapConfig,
         }),
     );
     const { labels, epicTokens, epicPoints, epicReviewRatio, epicReviewCicdSeconds, ...calibration } =
@@ -85,7 +115,10 @@ export function parseHistory(value: unknown, repository: string): HistoricalData
         text(row.title, "historical PR title");
         if (!["MERGED", "OPEN", "CLOSED"].includes(row.state as string))
             throw new ForecastInputError("historical PR state must be MERGED, OPEN or CLOSED");
-        if (row.epic !== null) integer(row.epic, "historical PR epic");
+        if (typeof row.epic === "string") {
+            text(row.epic, "historical PR epic");
+            if (/^\d+$/.test(row.epic)) throw new ForecastInputError("Use a number for a numeric historical PR epic");
+        } else if (row.epic !== null) integer(row.epic, "historical PR epic");
         for (const key of [
             "turns",
             "uncachedInputTokens",

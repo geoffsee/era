@@ -1,6 +1,7 @@
 import type { Calibration, RoadmapEstimate } from "./estimator.ts";
 import type { ForecastPlan } from "./forecast-plan.ts";
 import type { HistoricalData } from "./history.ts";
+import type { RoadmapConfig } from "./roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "./tracking/model.ts";
 
 export type ForecastRequest = {
@@ -9,10 +10,11 @@ export type ForecastRequest = {
         number: number;
         title: string;
         body: string;
-        titles: Record<string, string>;
+        titles?: Record<string, string>;
         states?: Record<string, string>;
     };
     history: HistoricalData;
+    roadmapConfig?: RoadmapConfig;
     plan?: ForecastPlan;
     record?: boolean;
 };
@@ -30,7 +32,12 @@ export type ForecastResponse = {
     stored: number;
 };
 
-export type BacktestRequest = { repository: string; history: HistoricalData; record?: boolean };
+export type BacktestRequest = {
+    repository: string;
+    history: HistoricalData;
+    record?: boolean;
+    roadmapConfig?: RoadmapConfig;
+};
 export type BacktestResponse = {
     repository: string;
     predictions: Prediction[];

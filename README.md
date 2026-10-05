@@ -2,6 +2,8 @@
 
 Estimate work, record predictions, and compare actuals; later runs improve the model.
 
+Use your existing roadmap with [configurable Markdown tables or normalized JSON](docs/ROADMAP-FORMATS.md). `era roadmap validate` previews the parsed work and dependencies before estimation; the original roadmap format remains the default preset.
+
 ## Setup
 
 Install the CLI with Node.js 22 or newer:

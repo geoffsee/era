@@ -4,7 +4,7 @@ export type HistoricalPullRequest = {
     state: string;
     createdAt?: string;
     mergedAt?: string;
-    epic: number | null;
+    epic: number | string | null;
     turns: number;
     uncachedInputTokens: number;
     cacheReadTokens: number;

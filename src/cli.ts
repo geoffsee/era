@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { hashSecret } from "@di-framework/auth";
 import { apiUrl, login } from "./auth/cli.ts";
 import { type CredentialCache, credentialId, FileCredentialCache, MemoryCredentialCache } from "./auth/credentials.ts";
 import type { BacktestResponse, ForecastRequest, ForecastResponse } from "./forecast-contract.ts";
 import { loadRoadmapIssue } from "./github-data-repository.ts";
 import { loadHistoricalData, loadHistoricalPullRequests } from "./historical-data-repository.ts";
+import type { RoadmapConfig } from "./roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "./tracking/model.ts";
 
 type Io = {
@@ -27,6 +28,8 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
   era tokens [--repository owner/name]
   era revoke-token --id TOKEN_ID [--repository owner/name]
 
+  era roadmap validate --repository owner/name [--body roadmap.md --config era.config.json]
+
   era predictions --repository owner/name --subject issue:1 --model token-threshold --metric tokens --value 100
   era observations --repository owner/name --subject issue:1 --metric tokens --value 120
   era accuracy --repository owner/name
@@ -38,6 +41,7 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
 
 ERA_API_URL and ERA_API_TOKEN select the Cloudflare tracker. --api and --token override them.
 Saved login credentials are used when flags and environment variables are absent.
+Roadmap commands load era.config.json from the current directory; --config selects another file.
 estimate sends a snapshot to the authenticated Worker without recording predictions.
 record-estimate calculates and records on the Worker. Dollar predictions use the versioned usd_subtotal metric.
 `;
@@ -49,7 +53,8 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
         return 0;
     }
     try {
-        const flags = parseFlags(rest);
+        if (command === "roadmap" && rest[0] !== "validate") throw new Error("Use era roadmap validate");
+        const flags = parseFlags(command === "roadmap" ? rest.slice(1) : rest);
         const cache = io.credentials ?? new MemoryCredentialCache();
         const state = cache.read();
         const url = apiUrl(flags.get("api") ?? io.env.ERA_API_URL ?? state.activeApi ?? "");
@@ -61,6 +66,14 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
         const saved = repository ? state.credentials[credentialId(url, repository)] : undefined;
         const api = endpoint(flags, io.env, url, saved?.apiToken);
         switch (command) {
+            case "roadmap": {
+                const repository = required(flags, "repository");
+                const roadmapConfig = loadRoadmapConfig(flags);
+                const roadmap = await loadRoadmapSource(repository, flags, roadmapConfig);
+                const result = await post(api, io, "/v1/roadmap-validations", { repository, roadmap, roadmapConfig });
+                io.stdout(JSON.stringify(result, null, 2));
+                return 0;
+            }
             case "logout": {
                 if (!api.token.startsWith("era_"))
                     throw new Error(
@@ -176,6 +189,7 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
                     repository,
                     history,
                     record: true,
+                    roadmapConfig: loadRoadmapConfig(flags),
                 });
                 io.stdout(renderAccuracy(body.reports));
                 return 0;
@@ -201,37 +215,56 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
     }
 }
 
+function loadRoadmapConfig(flags: Map<string, string>): RoadmapConfig | undefined {
+    const path = flags.get("config") ?? "era.config.json";
+    if (!flags.has("config") && !existsSync(path)) return undefined;
+    const config = JSON.parse(readFileSync(path, "utf8"));
+    if (
+        !config ||
+        typeof config !== "object" ||
+        Array.isArray(config) ||
+        config.version !== 1 ||
+        !config.roadmap ||
+        Object.keys(config).some((key) => !["version", "roadmap"].includes(key))
+    )
+        throw new Error("ERA config must contain version: 1 and roadmap configuration");
+    return config.roadmap as RoadmapConfig;
+}
+
 async function loadForecastInput(repository: string, flags: Map<string, string>): Promise<ForecastRequest> {
-    if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("repository must be owner/name");
-    const [owner, repo] = repository.split("/") as [string, string];
-    if (flags.has("issue") && (!Number.isSafeInteger(Number(flags.get("issue"))) || Number(flags.get("issue")) <= 0))
-        throw new Error("--issue must be a positive integer");
+    const roadmapConfig = loadRoadmapConfig(flags);
+    const roadmap = await loadRoadmapSource(repository, flags, roadmapConfig);
     const history = await loadHistoricalData(flags.get("history") ?? "historical-data");
     if (history.repository !== repository)
         throw new Error(`historical repository ${history.repository ?? "unavailable"} does not match ${repository}`);
     const plan = flags.has("plan") ? JSON.parse(readFileSync(flags.get("plan")!, "utf8")) : undefined;
-    const common = { repository, history, plan };
-    if (flags.has("body") && flags.has("titles")) {
+    return { repository, history, plan, roadmap, roadmapConfig };
+}
+
+async function loadRoadmapSource(
+    repository: string,
+    flags: Map<string, string>,
+    config?: RoadmapConfig,
+): Promise<ForecastRequest["roadmap"]> {
+    if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("repository must be owner/name");
+    const [owner, repo] = repository.split("/") as [string, string];
+    if (flags.has("issue") && (!Number.isSafeInteger(Number(flags.get("issue"))) || Number(flags.get("issue")) <= 0))
+        throw new Error("--issue must be a positive integer");
+    if (flags.has("body") && (flags.has("titles") || (config && config.format !== "legacy"))) {
         return {
-            ...common,
-            roadmap: {
-                number: Number(flags.get("issue") ?? "0"),
-                title: flags.get("title") ?? "Roadmap",
-                body: readFileSync(flags.get("body")!, "utf8"),
-                titles: JSON.parse(readFileSync(flags.get("titles")!, "utf8")),
-            },
+            number: Number(flags.get("issue") ?? "0"),
+            title: flags.get("title") ?? "Roadmap",
+            body: readFileSync(flags.get("body")!, "utf8"),
+            titles: flags.has("titles") ? JSON.parse(readFileSync(flags.get("titles")!, "utf8")) : {},
         };
     }
     const issue = await loadRoadmapIssue(owner, repo, flags.has("issue") ? Number(flags.get("issue")) : undefined);
     return {
-        ...common,
-        roadmap: {
-            number: issue.number,
-            title: issue.title,
-            body: flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body,
-            titles: Object.fromEntries(issue.titles),
-            states: Object.fromEntries(issue.issueStates),
-        },
+        number: issue.number,
+        title: issue.title,
+        body: flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body,
+        titles: Object.fromEntries(issue.titles),
+        states: Object.fromEntries(issue.issueStates),
     };
 }
 

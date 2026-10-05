@@ -37,6 +37,16 @@ const server = Bun.serve({
                 expiresAt: Math.floor(Date.now() / 1000) + 86400,
             });
         assert.equal(request.headers.get("authorization"), `Bearer ${apiToken}`);
+        if (path === "/v1/roadmap-validations") {
+            const input = (await request.json()) as {
+                roadmapConfig: unknown;
+                roadmap: { body: string };
+                history?: unknown;
+            };
+            assert.deepEqual(input.roadmapConfig, { format: "normalized-json" });
+            assert.equal(input.history, undefined);
+            return Response.json({ roadmap: JSON.parse(input.roadmap.body), diagnostics: [] });
+        }
         if (path === "/v1/backtests") {
             const body = (await request.json()) as { history: { pullRequests: unknown[] }; record: boolean };
             assert.deepEqual(body.history.pullRequests, []);
@@ -74,7 +84,17 @@ try {
     assert(
         contents.every(
             (path) =>
-                ["README.md", "package.json", "dist/cli.js", "docs/AUTH.md", "docs/FORECAST-API.md"].includes(path) ||
+                [
+                    "README.md",
+                    "package.json",
+                    "dist/cli.js",
+                    "docs/AUTH.md",
+                    "docs/FORECAST-API.md",
+                    "docs/ROADMAP-FORMATS.md",
+                ].includes(path) ||
+                /^examples\/roadmaps\/(era\.config\.json|normalized\.config\.json|roadmap\.md|roadmap\.json)$/.test(
+                    path,
+                ) ||
                 /^historical-data\/[^/]+\.schema\.json$/.test(path),
         ),
     );
@@ -92,11 +112,29 @@ try {
     );
     await writeFile(join(root, "pr_cicd_dataset.json"), "[]");
     await run([bin, "backtest", "--repository", repository, "--dir", root]);
+    await writeFile(
+        join(root, "era.config.json"),
+        JSON.stringify({ version: 1, roadmap: { format: "normalized-json" } }),
+    );
+    await writeFile(
+        join(root, "roadmap.json"),
+        JSON.stringify({ version: 1, items: [{ issue: 12, title: "Custom work" }] }),
+    );
+    const preview = JSON.parse(
+        await run([bin, "roadmap", "validate", "--repository", repository, "--body", join(root, "roadmap.json")]),
+    );
+    assert.equal(preview.roadmap.items[0].title, "Custom work");
     await run([bin, "logout"]);
     assert.deepEqual(JSON.parse(await readFile(cache, "utf8")).credentials, {});
-    assert.deepEqual(requests, ["/auth/cli/start", "/auth/cli/token", "/v1/backtests", `/auth/tokens/${keyId}`]);
+    assert.deepEqual(requests, [
+        "/auth/cli/start",
+        "/auth/cli/token",
+        "/v1/backtests",
+        "/v1/roadmap-validations",
+        `/auth/tokens/${keyId}`,
+    ]);
     console.log(
-        "Packed CLI installed with npm and passed Node help, headless login, cached credentials, history loading and logout checks.",
+        "Packed CLI passed Node help, login, cached credentials, history loading, configurable roadmap validation and logout checks.",
     );
 } finally {
     server.stop(true);

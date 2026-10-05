@@ -1,24 +1,29 @@
 import {
-    EMPTY_REVIEW_POOL,
-    epicNumberFromTitle,
-    type HistoricalPullRequest,
-    type HistoricalAuthorOverhead,
-    isCalibrationSample,
-    type ReviewPool,
-} from "./history.ts";
-import {
     type CostGap,
-    type InfrastructureBilling,
-    type TokenQuantities,
-    type TokenRateCard,
     forecastAuthorOverhead,
+    type InfrastructureBilling,
     nonNegative,
     priceInfrastructure,
     priceTokens,
+    type TokenQuantities,
+    type TokenRateCard,
 } from "./accounting.ts";
-import { buildDependencyGraph, isEpicTitle, laneForIssue, parseRoadmap } from "./roadmap.ts";
-import { type ForecastPlan, HUMAN_ACTIVITIES, type RemainingWork, parseForecastPlan } from "./forecast-plan.ts";
-import { type ChronologicalValidation, chronologicalTokenValidation } from "./validation.ts";
+import { type ForecastPlan, HUMAN_ACTIVITIES, parseForecastPlan, type RemainingWork } from "./forecast-plan.ts";
+import {
+    EMPTY_REVIEW_POOL,
+    type HistoricalAuthorOverhead,
+    type HistoricalPullRequest,
+    isCalibrationSample,
+    type ReviewPool,
+} from "./history.ts";
+import { type buildDependencyGraph, laneForIssue } from "./roadmap.ts";
+import {
+    type CalibrationGroup,
+    parseRoadmapConfig,
+    type RoadmapConfig,
+    resolveRoadmap,
+    roadmapHistory,
+} from "./roadmap-format.ts";
 import {
     baseTokensFromStoryPoints,
     complexityWeight,
@@ -41,6 +46,7 @@ import {
     tokenSize,
     totalCost,
 } from "./theory.ts";
+import { type ChronologicalValidation, chronologicalTokenValidation } from "./validation.ts";
 
 /** Assumed future routing; mixed-model history cannot reconstruct model-specific historical bills. */
 export const SONNET_46 = {
@@ -100,8 +106,8 @@ export type Calibration = {
     upperStoryPoints: number;
     pointBreaks: number[];
     labels: Map<number, number>;
-    epicTokens: Map<number, number>;
-    epicPoints: Map<number, number>;
+    epicTokens: Map<CalibrationGroup, number>;
+    epicPoints: Map<CalibrationGroup, number>;
     reviewCoveredPullRequests: number;
     reviewCoverage: number;
     medianReviewTokenRatio: number;
@@ -114,15 +120,15 @@ export type Calibration = {
     unpairedReviewTokens: number;
     followupTokenShare: number;
     inheritedTokenShare: number;
-    epicReviewRatio: Map<number, number>;
-    epicReviewCicdSeconds: Map<number, number>;
+    epicReviewRatio: Map<CalibrationGroup, number>;
+    epicReviewCicdSeconds: Map<CalibrationGroup, number>;
     reviewGaps: string[];
 };
 
 export type ChildEstimate = {
     issue: number;
     laneId: string;
-    epic: number | null;
+    epic: CalibrationGroup | null;
     tokens: number;
     size: TokenSize;
     partitions: number;
@@ -254,8 +260,8 @@ export function calibrate(
     }
 
     const pointValues = [...labels.values()];
-    const tokensByEpic = new Map<number, number[]>();
-    const pointsByEpic = new Map<number, number[]>();
+    const tokensByEpic = new Map<CalibrationGroup, number[]>();
+    const pointsByEpic = new Map<CalibrationGroup, number[]>();
     for (const pullRequest of sample) {
         if (pullRequest.epic === null) continue;
         const tokens = tokensByEpic.get(pullRequest.epic) ?? [];
@@ -332,8 +338,8 @@ function reviewCalibration(
             ? covered.map((pullRequest) => pullRequest.reviewCostUsd ?? 0)
             : unmatched.map((pullRequest) => pullRequest.reviewCostUsd),
     );
-    const ratiosByEpic = new Map<number, number[]>();
-    const cicdByEpic = new Map<number, number[]>();
+    const ratiosByEpic = new Map<CalibrationGroup, number[]>();
+    const cicdByEpic = new Map<CalibrationGroup, number[]>();
     let unpairedReviewTokens = 0;
     for (const pullRequest of history) {
         const reviewTokens = pullRequest.reviewTokens ?? 0;
@@ -386,33 +392,40 @@ export function estimateRoadmap(input: {
     historyGeneratedAt?: string;
     plan?: ForecastPlan;
     issueStates?: ReadonlyMap<number, string>;
+    roadmapConfig?: RoadmapConfig;
 }): RoadmapEstimate {
     const plan = input.plan ? parseForecastPlan(input.plan) : undefined;
     const assumptions = input.assumptions ?? DEFAULT_ASSUMPTIONS;
     for (const [name, value] of Object.entries(assumptions)) nonNegative(value, name);
     const authorRateCard = plan?.authorRateCard ?? input.authorRateCard ?? DEFAULT_AUTHOR_RATE_CARD;
-    const parsed = parseRoadmap(input.issueBody);
-    const graph = buildDependencyGraph(parsed.lanes, parsed.gates, input.titles);
+    const config = parseRoadmapConfig(input.roadmapConfig);
+    const resolved = resolveRoadmap(input.issueBody, input.titles, config);
+    const graph = resolved.graph;
+    const items = new Map(resolved.roadmap.items.map((item) => [item.issue, item]));
+    const history = roadmapHistory(input.history, config);
     for (const id of Object.keys(plan?.work ?? {})) {
         if (!graph.nodes.includes(Number(id)))
             throw new Error(`work plan #${id} is outside remaining roadmap membership`);
-        if (isEpicTitle(input.titles.get(Number(id)) ?? ""))
+        if (items.get(Number(id))?.kind === "epic")
             throw new Error(`work plan #${id} is an epic tracker; size its delivery children`);
     }
-    const calibration = calibrate(input.history, input.reviewPool ?? EMPTY_REVIEW_POOL, authorRateCard);
+    const calibration = calibrate(history, input.reviewPool ?? EMPTY_REVIEW_POOL, authorRateCard);
 
     const children: ChildEstimate[] = [];
     let epicCount = 0;
     for (const issue of graph.nodes) {
-        const title = input.titles.get(issue);
+        const item = items.get(issue)!;
+        const title = item.title;
         if (!title?.trim()) throw new Error(`Missing issue title for #${issue}`);
-        if (isEpicTitle(title)) {
+        if (item.kind === "epic") {
             epicCount += 1;
             continue;
         }
         const work = plan?.work?.[String(issue)];
-        if (work?.accepted) {
-            graph.diagnostics.push(`Excluded accepted delivery #${issue}: ${work.source}`);
+        if (item.acceptance && work && !work.accepted)
+            throw new Error(`Work plan #${issue} conflicts with roadmap acceptance evidence`);
+        if (work?.accepted || item.acceptance) {
+            graph.diagnostics.push(`Excluded accepted delivery #${issue}: ${item.acceptance?.source ?? work?.source}`);
             continue;
         }
         if (input.issueStates?.get(issue)?.toLowerCase() === "closed") {
@@ -421,23 +434,21 @@ export function estimateRoadmap(input: {
             );
         }
         const peers = work?.comparablePrs?.map((number) => {
-            const peer = input.history.find(
-                (candidate) => candidate.number === number && isCalibrationSample(candidate),
-            );
+            const peer = history.find((candidate) => candidate.number === number && isCalibrationSample(candidate));
             if (!peer) throw new Error(`Comparable PR #${number} for issue #${issue} has no merged author usage`);
             return peer;
         });
         children.push(
             estimateChild(
                 issue,
-                title,
+                item.calibrationGroup ?? null,
                 graph.lanes,
                 peers ? calibrate(peers, EMPTY_REVIEW_POOL, authorRateCard) : calibration,
                 assumptions,
                 authorRateCard,
                 work,
                 plan?.humanActivities !== undefined,
-                input.history,
+                history,
                 calibration,
             ),
         );
@@ -555,15 +566,15 @@ export function estimateRoadmap(input: {
         explicitHumanActivities: plan?.humanActivities !== undefined,
         planSource: plan?.source,
         illustrativeTokenCost: rawTokens * calibration.blendedPricePerToken,
-        backtest: leaveOneOut(input.history, calibration),
-        tokenValidation: chronologicalTokenValidation(input.history),
+        backtest: leaveOneOut(history, calibration),
+        tokenValidation: chronologicalTokenValidation(history),
         assumptions,
     };
 }
 
 function estimateChild(
     issue: number,
-    title: string,
+    epic: CalibrationGroup | null,
     lanes: ReturnType<typeof buildDependencyGraph>["lanes"],
     calibration: Calibration,
     assumptions: Assumptions,
@@ -573,7 +584,6 @@ function estimateChild(
     history: readonly HistoricalPullRequest[],
     repositoryCalibration: Calibration,
 ): ChildEstimate {
-    const epic = epicNumberFromTitle(title);
     const typicalTokens =
         !work?.comparablePrs && epic !== null && calibration.epicTokens.has(epic)
             ? calibration.epicTokens.get(epic)!

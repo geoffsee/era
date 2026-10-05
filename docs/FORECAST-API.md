@@ -2,7 +2,7 @@
 
 The Worker owns forecast calculation and Markdown generation. The CLI collects local extracts and GitHub or saved roadmap inputs, serializes them, and calls the API. Shared types and pure estimation code do not import the Bun filesystem loader. The Worker does not read local paths or fetch GitHub on the caller's behalf.
 
-Both endpoints require `Authorization: Bearer <token>` and `Content-Type: application/json`. [GitHub login](AUTH.md) issues ERA user keys scoped to one repository, with current GitHub write access rechecked at most five minutes apart. The existing static admin token can access any repository; GitHub Actions OIDC identities can access only their own repository. Authentication runs before body parsing/calculation. Use HTTPS for hosted calls; HTTP examples apply to localhost development.
+These endpoints require `Authorization: Bearer <token>` and `Content-Type: application/json`. [GitHub login](AUTH.md) issues ERA user keys scoped to one repository, with current GitHub write access rechecked at most five minutes apart. The existing static admin token can access any repository; GitHub Actions OIDC identities can access only their own repository. Authentication runs before body parsing/calculation. Use HTTPS for hosted calls; HTTP examples apply to localhost development.
 
 ## POST /v1/estimates
 
@@ -60,3 +60,6 @@ Bodies are streamed with a 2 MiB cap, including requests without a Content-Lengt
 Errors retain the tracker's `{ "error": "message" }` envelope: 400 for invalid inputs, 401 for missing/invalid authentication, 403 for a foreign repository, 413 for excessive request bytes, 415 for a non-JSON content type, and 503 for ledger storage failures (with database internals withheld). Ledger rows produced by estimates use `delivery-cost-v2` / `usd_subtotal`; existing `acem` / `usd` rows remain separate.
 
 Tests exercise authenticated JSON round trips and recording with an in-memory ledger. Local qualification additionally uses Wrangler's Workers runtime and a disposable D1 binding; no production deployment is part of these tests.
+## Configurable roadmap inputs
+
+Estimate and backtest requests may include `roadmapConfig`. `POST /v1/roadmap-validations` validates a roadmap without history or storage writes. See [roadmap formats](ROADMAP-FORMATS.md) for the configuration, normalized model, calibration mappings and limits. Omitting configuration selects the existing format.
