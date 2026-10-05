@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { estimateRoadmap, type RoadmapEstimate } from "./estimator.ts";
 import { loadRoadmapIssue } from "./github-data-repository.ts";
 import { loadHistoricalData, loadHistoricalPullRequests } from "./historical-data-repository.ts";
+import { parseForecastPlan } from "./forecast-plan.ts";
+import { renderEstimate } from "./format.ts";
 import { tokenBacktest } from "./tracking/backtest.ts";
 import type { AccuracyReport, Observation, Prediction } from "./tracking/model.ts";
 
@@ -22,8 +24,10 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
   era ingest-history --repository owner/name --dir historical-data
   era backtest --repository owner/name --dir historical-data
   era record-estimate --repository owner/name [--body roadmap.md --history historical-data --titles titles.json]
+  era estimate --repository owner/name [--issue N] [--body roadmap.md --titles titles.json --history historical-data --plan forecast-plan.json]
 
 ERA_API_URL and ERA_API_TOKEN select the Cloudflare tracker. --api and --token override them.
+estimate is read-only and needs no tracker credentials. Dollar predictions use the versioned usd_subtotal metric.
 `;
 
 export async function runCli(argv: string[], io: Io = defaultIo()): Promise<number> {
@@ -34,6 +38,11 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
     }
     try {
         const flags = parseFlags(rest);
+        if (command === "estimate") {
+            const repository = required(flags, "repository");
+            io.stdout(renderEstimate(await loadEstimate(repository, flags), repository));
+            return 0;
+        }
         const api = endpoint(flags, io.env);
         switch (command) {
             case "predictions":
@@ -99,6 +108,10 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
             case "record-estimate": {
                 const repository = required(flags, "repository");
                 const estimate = await loadEstimate(repository, flags);
+                if (estimate.issueNumber <= 0)
+                    throw new Error(
+                        "record-estimate requires a real roadmap issue number; pass --issue for offline snapshots",
+                    );
                 const predictions = predictionsFromEstimate(repository, estimate);
                 const stored = await postBatches(api, io, "/v1/predictions", "predictions", predictions);
                 io.stdout(`Stored ${stored} predictions for ${repository} issue #${estimate.issueNumber}.`);
@@ -127,7 +140,14 @@ function predictionsFromEstimate(repository: string, estimate: RoadmapEstimate):
             recordedAt,
         ),
         row(repository, `issue:${estimate.issueNumber}`, "seeagent", "story_points", estimate.storyPoints, recordedAt),
-        row(repository, `issue:${estimate.issueNumber}`, "acem", "usd", estimate.totalCost, recordedAt),
+        row(
+            repository,
+            `issue:${estimate.issueNumber}`,
+            "delivery-cost-v2",
+            "usd_subtotal",
+            estimate.pricedSubtotalUsd,
+            recordedAt,
+        ),
     ];
     for (const child of estimate.children) {
         rows.push(row(repository, `issue:${child.issue}`, "token-threshold", "tokens", child.tokens, recordedAt));
@@ -148,9 +168,17 @@ function row(
 }
 
 async function loadEstimate(repository: string, flags: Map<string, string>): Promise<RoadmapEstimate> {
-    const [owner, repo] = repository.split("/");
-    if (!owner || !repo) throw new Error("repository must be owner/name");
+    if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("repository must be owner/name");
+    const [owner, repo] = repository.split("/") as [string, string];
+    if (flags.has("issue") && (!Number.isSafeInteger(Number(flags.get("issue"))) || Number(flags.get("issue")) <= 0))
+        throw new Error("--issue must be a positive integer");
     const history = await loadHistoricalData(flags.get("history") ?? "historical-data");
+    if (history.repository !== repository)
+        throw new Error(`historical repository ${history.repository ?? "unavailable"} does not match ${repository}`);
+    const plan = flags.has("plan")
+        ? parseForecastPlan(JSON.parse(readFileSync(flags.get("plan")!, "utf8")))
+        : undefined;
+    const common = { authorOverhead: history.authorOverhead, historyGeneratedAt: history.generatedAt, plan };
     if (flags.has("body") && flags.has("titles")) {
         const titles = new Map<number, string>(
             Object.entries(JSON.parse(readFileSync(flags.get("titles")!, "utf8")) as Record<string, string>).map(
@@ -158,6 +186,7 @@ async function loadEstimate(repository: string, flags: Map<string, string>): Pro
             ),
         );
         return estimateRoadmap({
+            ...common,
             issueNumber: Number(flags.get("issue") ?? "0"),
             issueTitle: flags.get("title") ?? "Roadmap",
             issueBody: readFileSync(flags.get("body")!, "utf8"),
@@ -166,14 +195,16 @@ async function loadEstimate(repository: string, flags: Map<string, string>): Pro
             reviewPool: history.reviewPool,
         });
     }
-    const issue = await loadRoadmapIssue(owner, repo);
+    const issue = await loadRoadmapIssue(owner, repo, flags.has("issue") ? Number(flags.get("issue")) : undefined);
     return estimateRoadmap({
+        ...common,
         issueNumber: issue.number,
         issueTitle: issue.title,
         issueBody: flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body,
         titles: issue.titles,
         history: history.pullRequests,
         reviewPool: history.reviewPool,
+        issueStates: issue.issueStates,
     });
 }
 

@@ -4,6 +4,8 @@ export type HistoricalPullRequest = {
     number: number;
     title: string;
     state: string;
+    createdAt?: string;
+    mergedAt?: string;
     epic: number | null;
     turns: number;
     uncachedInputTokens: number;
@@ -20,6 +22,17 @@ export type HistoricalPullRequest = {
     pricedReviewTokens?: number;
     reviewCostUsd?: number;
     reviewCicdSeconds?: number;
+    /** False means the CI/review extract did not contain an observation for this PR. */
+    cicdObserved?: boolean;
+    reviewObserved?: boolean;
+};
+
+export type HistoricalAuthorOverhead = {
+    uncachedInputTokens: number;
+    cacheReadTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    attributedAuthorTokens: number;
 };
 
 export type UnmatchedReview = {
@@ -49,11 +62,21 @@ export const EMPTY_REVIEW_POOL: ReviewPool = {
 };
 
 type TokenFile = {
-    metadata: { repository?: string; total_prs_tracked?: number };
+    metadata: { repository?: string; total_prs_tracked?: number; generated_at?: string };
+    orchestration_and_overhead?: {
+        token_usage: {
+            uncached_input_tokens: number;
+            cache_read_input_tokens: number;
+            output_tokens: number;
+            total_tokens: number;
+        };
+    };
     pull_requests: Array<{
         pr_number: number;
         title: string;
         state: string;
+        created_at?: string;
+        merged_at?: string | null;
         agent_turns_count: number;
         token_usage: {
             uncached_input_tokens: number;
@@ -86,6 +109,8 @@ export function isCalibrationSample(pullRequest: HistoricalPullRequest): boolean
 
 type ReviewFile = {
     metadata: {
+        repository?: string;
+        generated_at?: string;
         unattributed_review_tokens: number;
         followup_tokens: number;
         review_loop_tokens: number;
@@ -110,16 +135,37 @@ export async function loadHistoricalPullRequests(
 export async function loadHistoricalData(directory = join(import.meta.dir, "..", "historical-data")): Promise<{
     pullRequests: HistoricalPullRequest[];
     reviewPool: ReviewPool;
+    authorOverhead?: HistoricalAuthorOverhead;
+    repository?: string;
+    generatedAt?: string;
 }> {
     const tokenFile = (await Bun.file(join(directory, "pr_token_usage_dataset.json")).json()) as TokenFile;
     const cicdFile = (await Bun.file(join(directory, "pr_cicd_dataset.json")).json()) as CicdFile;
     const reviewFile = Bun.file(join(directory, "pr_review_dataset.json"));
     const review = (await reviewFile.exists()) ? ((await reviewFile.json()) as ReviewFile) : null;
+    if (review?.metadata.repository && tokenFile.metadata.repository !== review.metadata.repository) {
+        throw new Error("author and review history repository identities do not match");
+    }
     const cicdByNumber = new Map(cicdFile.map((row) => [row.pr_number, row]));
     const reviewByNumber = new Map(review?.pull_requests.map((row) => [row.pr_number, row]) ?? []);
     const authorNumbers = new Set(tokenFile.pull_requests.map((pullRequest) => pullRequest.pr_number));
+    const overhead = tokenFile.orchestration_and_overhead?.token_usage;
 
     return {
+        repository: tokenFile.metadata.repository,
+        generatedAt: tokenFile.metadata.generated_at,
+        authorOverhead: overhead
+            ? {
+                  uncachedInputTokens: overhead.uncached_input_tokens,
+                  cacheReadTokens: overhead.cache_read_input_tokens,
+                  outputTokens: overhead.output_tokens,
+                  totalTokens: overhead.total_tokens,
+                  attributedAuthorTokens: tokenFile.pull_requests.reduce(
+                      (total, row) => total + row.token_usage.total_tokens,
+                      0,
+                  ),
+              }
+            : undefined,
         pullRequests: tokenFile.pull_requests.map((pullRequest) => {
             const cicd = cicdByNumber.get(pullRequest.pr_number);
             const reviewed = reviewByNumber.get(pullRequest.pr_number);
@@ -128,6 +174,8 @@ export async function loadHistoricalData(directory = join(import.meta.dir, "..",
                 number: pullRequest.pr_number,
                 title: pullRequest.title,
                 state: pullRequest.state,
+                createdAt: pullRequest.created_at,
+                mergedAt: pullRequest.merged_at ?? undefined,
                 epic: epicNumberFromTitle(pullRequest.title),
                 turns: pullRequest.agent_turns_count,
                 uncachedInputTokens: usage.uncached_input_tokens,
@@ -143,6 +191,8 @@ export async function loadHistoricalData(directory = join(import.meta.dir, "..",
                 pricedReviewTokens: reviewed?.priced_review_tokens ?? 0,
                 reviewCostUsd: reviewed?.review_cost_usd ?? 0,
                 reviewCicdSeconds: reviewed?.review_cicd_seconds ?? 0,
+                cicdObserved: cicd !== undefined,
+                reviewObserved: reviewed !== undefined,
             };
         }),
         reviewPool: review

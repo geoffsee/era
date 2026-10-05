@@ -1,0 +1,6 @@
+[
+  {
+    "pr_number": 1,
+    "cicd_summary": { "failed_jobs_count": 0, "successful_jobs_count": 1, "total_cicd_duration_seconds": 120 }
+  }
+]

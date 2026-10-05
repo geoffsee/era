@@ -1,83 +1,123 @@
 import type { ChildEstimate, RoadmapEstimate } from "./estimator.ts";
-import { tokenSize } from "./theory.ts";
 
 export function renderEstimate(estimate: RoadmapEstimate, repository: string): string {
     const calibration = estimate.calibration;
+    const rates = estimate.authorRateCard;
+    const missing = (category: string) => estimate.costGaps.some((gap) => gap.category === category);
     const lines = [
         `# Estimates for ${repository}#${estimate.issueNumber}`,
         "",
         estimate.issueTitle,
         "",
-        `Remaining work is the ${estimate.childCount} child issues in lanes whose state is not complete. ${estimate.epicCount} epic trackers stay in the dependency graph at zero token weight. Each child is one agent session, so context resets between children.`,
+        `**Priced subtotal: ${usd(estimate.pricedSubtotalUsd)}, plus unpriced delivery costs.** This is a conditional allocation of priced components, not a complete cash budget.`,
+        "",
+        `Remaining scope includes ${estimate.childCount} delivery children and ${estimate.epicCount} epic trackers at zero execution weight. Each child's default load is a historical typical PR estimate, not proof that it takes one session.`,
         "",
         "| Model | Quantity | Estimate |",
         "| --- | --- | --- |",
         `| Token-threshold | Raw sprint load E_raw | ${tokens(estimate.rawTokens)} |`,
-        `| Token-threshold | Parallel effective load E_eff | ${tokens(estimate.effectiveTokens)} |`,
-        `| Token-threshold | Critical path | ${estimate.criticalPath.map((issue) => `#${issue}`).join(" → ")} |`,
-        `| Token-threshold | Size of E_raw | ${tokenSize(estimate.rawTokens)} |`,
-        `| Token-threshold | Leaves still required so each τ ≤ 4×10^5 | ${integer(estimate.partitions)} |`,
-        `| Token-threshold | Illustrative cost C ≈ E_raw · p | ${usd(estimate.illustrativeTokenCost)} |`,
-        `| Token-threshold | Review-loop tokens | ${tokens(estimate.reviewTokens + estimate.reviewPoolTokens)} |`,
-        `| SEEAgent | Negotiated story points E* | ${integer(estimate.storyPoints)} points |`,
-        `| SEEAgent | Leave-one-out MAE | ${estimate.backtest.mae.toFixed(3)} points |`,
-        `| SEEAgent | Leave-one-out MMRE | ${estimate.backtest.mmre.toFixed(3)} |`,
-        `| SEEAgent | Leave-one-out PRED(0.5) | ${estimate.backtest.pred.toFixed(3)} |`,
-        `| ACEM | C_LLM | ${usd(estimate.llmCost)} |`,
-        `| ACEM | C_LLM review | ${usd(estimate.reviewLlmCost)} |`,
-        `| ACEM | C_LLM review, unattributed | ${usd(estimate.reviewPoolCost)} |`,
-        `| ACEM | C_HITL | ${usd(estimate.hitlCost)} |`,
-        `| ACEM | C_Infra | ${usd(estimate.infraCost)} |`,
-        `| ACEM | C_Infra review | ${usd(estimate.reviewInfraCost)} |`,
-        `| ACEM | Total_Cost | ${usd(estimate.totalCost)} |`,
+        `| Token-threshold | Issue-level dependency-path load E_eff (not duration) | ${tokens(estimate.effectiveTokens)} |`,
+        `| Token-threshold | Approximate heavy path | ${estimate.criticalPath.map((issue) => `#${issue}`).join(" → ")} |`,
+        `| Consumption | Review-loop load | ${tokens(estimate.reviewTokens + estimate.reviewPoolTokens)} |`,
+        `| Consumption | Author orchestration load | ${missing("author-orchestration") ? "Unpriced; quantity unavailable" : tokens(estimate.authorOverheadTokens)} |`,
+        `| Consumption | Aggregate estimated agent load (coverage gaps below) | ${tokens(estimate.allAgentTokens)} |`,
+        `| SEEAgent | Reconstructed negotiated story points E* | ${integer(estimate.storyPoints)} points |`,
+        `| SEEAgent diagnostic | Leave-one-out MAE against token-derived labels | ${estimate.backtest.mae.toFixed(3)} points |`,
+        `| SEEAgent diagnostic | Leave-one-out MMRE against token-derived labels | ${estimate.backtest.mmre.toFixed(3)} |`,
+        `| SEEAgent diagnostic | Leave-one-out PRED(0.5) against token-derived labels | ${estimate.backtest.pred.toFixed(3)} |`,
+        `| Priced costs | Author usage | ${usd(estimate.llmCost)} |`,
+        `| Priced costs | Author orchestration | ${missing("author-orchestration") ? "Unpriced" : usd(estimate.authorOverheadCost)} |`,
+        `| Priced costs | Codex review and follow-ups | ${missing("agent-review") ? "Unpriced" : usd(estimate.reviewLlmCost)} |`,
+        `| Priced costs | Shared/unpaired Codex review | ${missing("agent-review") ? "Unpriced" : usd(estimate.reviewPoolCost)} |`,
+        `| Priced costs | ${estimate.explicitHumanActivities ? "Explicit human activities" : "Human checkpoint review and assumed rework only"} | ${usd(estimate.hitlCost)} (${estimate.humanHours.toFixed(1)}h) |`,
+        `| Priced costs | Runner compute | ${missing("infrastructure") ? "Unpriced" : usd(estimate.infraCost)} |`,
+        `| Accounting | Priced subtotal | ${usd(estimate.pricedSubtotalUsd)} |`,
         "",
-        "## Decomposition by lane",
+        "## Chronological retrospective token validation",
         "",
-        "| Lane | Children | Calibrated tokens | Review tokens | Story points | C_LLM | C_review | C_HITL | C_Infra |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-        ...laneRows(estimate.children),
-        `| **Remaining** | **${estimate.childCount}** | **${integer(estimate.rawTokens)}** | **${integer(estimate.reviewTokens)}** | **${integer(estimate.storyPoints)}** | **${usd(estimate.llmCost)}** | **${usd(estimate.reviewLlmCost)}** | **${usd(estimate.hitlCost)}** | **${usd(estimate.infraCost)}** |`,
+        `Train only on PRs merged before each target PR was created, with at least three prior observations. ${estimate.tokenValidation.rows.length}/${estimate.tokenValidation.sampleCount} targets scored; ${estimate.tokenValidation.skippedDates} excluded for missing/invalid dates, ${estimate.tokenValidation.skippedWarmup} for insufficient prior history.`,
         "",
-        "## Calibration",
+        "| Baseline | Targets | MAE (tokens) | MMRE | PRED(0.5) |",
+        "| --- | ---: | ---: | ---: | ---: |",
+        ...(
+            [
+                ["Repository median", estimate.tokenValidation.repositoryMedian],
+                ["Epic median (minimum 3 peers, otherwise repository median)", estimate.tokenValidation.epicMedian],
+            ] as const
+        ).map(([name, score]) =>
+            score
+                ? `| ${name} | ${score.count} | ${integer(score.maeTokens)} | ${score.mmre.toFixed(3)} | ${score.pred.toFixed(3)} |`
+                : `| ${name} | 0 | Unavailable | Unavailable | Unavailable |`,
+        ),
+        "",
+        "These compare final historical token extracts, not immutable forecasts made at the time. Named comparable-PR plans are not validated by this baseline. Dollar accuracy remains unavailable without actual billing and human-effort observations; freeze prospective forecasts and score those against later receipts.",
+        "",
+        "## Unpriced costs and evidence gaps",
+        "",
+        ...estimate.costGaps.map((gap) => `- **${gap.category}:** ${gap.detail}`),
+        "",
+        "## Scope diagnostics",
+        "",
+        ...(estimate.scopeDiagnostics.length > 0
+            ? estimate.scopeDiagnostics.map((diagnostic) => `- ${diagnostic}`)
+            : [
+                  "No parser/graph approximations were detected. Acceptance evidence still determines delivery completion.",
+              ]),
+        "",
+        "## Typical load by lane",
+        "",
+        "| Lane | Children | Author tokens | Review tokens | Reconstructed points | Author USD | Review USD | Checkpoint labor USD |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ...laneRows(estimate.children, missing("agent-review")),
+        `| **Remaining** | **${estimate.childCount}** | **${integer(estimate.rawTokens)}** | **${integer(estimate.reviewTokens)}** | **${integer(estimate.storyPoints)}** | **${usd(estimate.llmCost)}** | **${missing("agent-review") ? "Unpriced" : usd(estimate.reviewLlmCost)}** | **${usd(sum(estimate.children.map((child) => child.hitlCost)))}** |`,
+        "",
+        "Shared orchestration, review pools and any explicitly priced runner usage are project-level components, added once outside these lane totals.",
+        ...(estimate.explicitHumanActivities
+            ? [
+                  "Explicit human activity costs are project-level; zero checkpoint allocations in lanes do not mean zero human work.",
+              ]
+            : []),
+        "",
+        "## Sizing evidence",
+        "",
+        "| Issue | Basis | Sample PRs | Remaining author blocks | Source |",
+        "| --- | --- | ---: | ---: | --- |",
+        ...estimate.children.map(
+            (child) =>
+                `| #${child.issue} | ${child.sizing.basis}${child.sizing.comparablePrs.length ? ` (${child.sizing.comparablePrs.map((id) => `PR #${id}`).join(", ")})` : ""} | ${child.sizing.sampleCount} | ${child.sizing.authorBlocks} | ${child.sizing.source.replaceAll("|", "\\|").replaceAll("\n", " ")} |`,
+        ),
+        "",
+        "## Calibration and assumptions",
         "",
         "| Parameter | Value |",
         "| --- | --- |",
-        `| Merged pull requests with agent tokens | ${calibration.sampleCount} |`,
-        `| Median calibrated τ | ${tokens(calibration.medianTotalTokens)} |`,
-        `| Literal (T_in·P_in + T_out·P_out)·RF·CF | ${usd(estimate.literalLlmCost)} |`,
-        `| Rejection rate r | ${calibration.rejectionRate.toFixed(4)} |`,
-        `| Extra invocations per rejection n | ${calibration.extraInvocations.toFixed(3)} |`,
-        `| RF = 1 + r·n | ${calibration.revisionFactor.toFixed(4)} |`,
-        `| Context growth α | ${calibration.alpha.toFixed(3)} |`,
-        `| CF at end of a child session | ${calibration.contextFactor.toFixed(3)} |`,
-        `| γ_SP | ${integer(Math.round(calibration.gammaPerPoint))} base tokens per point |`,
-        `| Blended price p | ${usd(calibration.blendedPricePerToken * 1_000_000)} per million tokens |`,
-        `| Review coverage | ${calibration.reviewCoveredPullRequests} of ${calibration.sampleCount} merged pull requests (${calibration.reviewCoverage.toFixed(3)}) |`,
-        `| Median review tokens / author tokens | ${calibration.medianReviewTokenRatio.toFixed(3)} |`,
-        `| Median review tokens per reviewed pull request | ${tokens(calibration.medianAbsoluteReviewTokens)} |`,
-        `| Review price | ${usd(calibration.reviewPricePerToken * 1_000_000)} per million review tokens |`,
-        `| Follow-up share of review-loop tokens | ${calibration.followupTokenShare.toFixed(3)} |`,
-        `| Inherited-split share of review-loop tokens | ${calibration.inheritedTokenShare.toFixed(3)} |`,
-        `| Story-point scale breaks | ${calibration.pointBreaks.map((value) => integer(Math.round(value))).join(", ")} |`,
+        `| Author history generated | ${estimate.historyGeneratedAt ?? "Unavailable"} |`,
+        `| Explicit plan source | ${cell(estimate.planSource ?? "Unavailable; default quantities apply")} |`,
+        `| Merged PRs with positive author usage | ${calibration.sampleCount} |`,
+        `| Historical median consumed author tokens | ${tokens(calibration.medianTotalTokens)} |`,
+        `| Review coverage | ${calibration.reviewCoveredPullRequests}/${calibration.sampleCount} merged PRs |`,
+        `| Median paired review/author ratio | ${calibration.medianReviewTokenRatio.toFixed(3)} |`,
+        `| Historical blended review price | ${usd(calibration.reviewPricePerToken * 1_000_000)} per million review tokens; assumed transferable |`,
+        `| Legacy RF/CF formula diagnostic (excluded from priced subtotal) | ${usd(estimate.literalLlmCost)} |`,
         "",
-        "Assumptions:",
-        "",
-        `- Token sizes use retrospective calibration τ ← T_actual. The fixed bins remain the decomposition threshold: anything above ${integer(400_000)} tokens is XL and must be split.`,
-        "- SEEAgent points are the project's missing story-point field, reconstructed by placing historical token totals on the Fibonacci scale 1, 2, 3, 5, 8, 13. E* is the value the analogist and peers agree on. Accuracy is leave-one-out against those labels.",
-        "- ACEM maps story points to a position-independent base, T_base = SP · γ_SP · CW, then applies RF and CF. Fresh input is $3 / million tokens, output is $15 / million, and the (CF − 1) context share is $0.30 / million because those tokens are cache reads in the historical log. Output is not multiplied by CF. The calibration row prices the literal product, which treats that context as fresh input.",
-        `- HITL is HIS-3: ${estimate.assumptions.checkpointsPerTask} checkpoint × ${estimate.assumptions.reviewHours} h review, plus r × ${estimate.assumptions.reworkHours} h rework, at $${estimate.assumptions.hourlyRateUsd}/h. W is not in the historical data. HITL is human time. Codex review is a separate model bill.`,
-        "- Infrastructure is the median historical CI duration scaled by each child's token ratio, at $0.006 per GitHub-hosted Linux minute. Standard runners on a public repository are not billed; the row is the list price.",
-        "- C_LLM review uses the median Codex review tokens per author token when a merged pull request has both, and an epic median when that epic has one. When the reviewed pull requests are missing from the author-token extract, each child is charged the median review-loop tokens of those pull requests instead. The price is the observed review dollars per review token. C_Infra review follows the same choice for the extra Actions span. The unattributed row scales review tokens that named no pull request by remaining author tokens.",
-        `- A session that runs gh against several pull requests is split evenly across them. ${(calibration.inheritedTokenShare * 100).toFixed(0)}% of review-loop tokens came from subagents that named none and inherited the parent list. Local test commands and Fast or Ultrafast speed are not in the log.`,
-        "- Critical-path edges are issue-level. A gate that releases a later milestone of an issue serializes the whole issue behind that gate.",
-        "- No sprint token budget B was supplied, so the commit check E_raw ≤ B is not applied.",
-        "- No dates are inferred.",
+        `- **Author rate card (${rates.provenance}):** ${rates.model}, ${rates.currency}, as of ${rates.asOf}; ${usd(rates.inputPerToken * 1_000_000)} fresh / ${usd(rates.cacheReadPerToken * 1_000_000)} cache-read / ${usd(rates.outputPerToken * 1_000_000)} output per million tokens. Source: [rate reference](${rates.source}). A stored reference is not verification of the user's current billing agreement.`,
+        "- Author cost prices the disjoint fresh/cache-read/output proportions observed across the calibration sample. Output includes reasoning. Inclusive historical usage already contains retries and context; neither is charged with another multiplier. Mixed-model history is repriced under the stated future routing assumption, not presented as an actual historical invoice.",
+        "- Child sizes use the median of explicitly selected comparable PRs, or default to epic-matched historical medians when available, otherwise the repository median. Remaining blocks scale this load. These are typical-load scenarios; a sum of medians is not a project percentile. Stronger forecasts require relevant completed tasks and verified remaining activities.",
+        "- Shared author orchestration uses its own observed category mix and its ratio to PR-attributed author usage. Codex review calibration imputes paired review loads or uses unmatched review medians; follow-up sessions are already included. Missing joins remain evidence gaps.",
+        estimate.explicitHumanActivities
+            ? "- Human labor uses the supplied activity hours and rates instead of default checkpoints. Missing activity categories remain unpriced. Labor allocation is not necessarily incremental cash spend."
+            : `- Human checkpoint labor assumes ${estimate.assumptions.checkpointsPerTask} × ${estimate.assumptions.reviewHours}h review per child, plus the CI failure-rate proxy × ${estimate.assumptions.reworkHours}h rework, at ${usd(estimate.assumptions.hourlyRateUsd)}/h. This covers only those activities; CI failure is not observed human rejection. Labor allocation is not necessarily incremental cash spend.`,
+        "- Runner compute is priced only from explicit billing applicability and billable quantities. Historical CI spans, review waiting and unattended soak duration are not human work hours or summed job minutes.",
+        "- The dependency graph is an issue-level approximation. Milestone collapse, unmapped references and dropped edges are listed above. Dependency-path tokens are not elapsed time; parallelism does not reduce aggregate consumption.",
+        "- SEEAgent's accuracy rows score reconstructed story-point labels and do not validate dollar or token forecasts. The chronological token baseline is evaluated separately above; prospective token/dollar forecasts remain necessary.",
+        "- Aggregate cached consumption does not imply a number of implementation tasks. The legacy partition arithmetic is not reported as required leaves.",
+        "- No delivery date, budget fit, actual spend to date, subscription allowance or estimate-at-completion is inferred.",
         "",
     ];
     return lines.join("\n");
 }
 
-function laneRows(children: readonly ChildEstimate[]): string[] {
+function laneRows(children: readonly ChildEstimate[], reviewUnpriced: boolean): string[] {
     const lanes = new Map<string, ChildEstimate[]>();
     for (const child of children) {
         const group = lanes.get(child.laneId) ?? [];
@@ -88,12 +128,16 @@ function laneRows(children: readonly ChildEstimate[]): string[] {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([laneId, group]) => {
             const issues = group.map((child) => `#${child.issue}`).join(", ");
-            return `| ${laneId} | ${issues} | ${integer(sum(group.map((child) => child.tokens)))} | ${integer(sum(group.map((child) => child.reviewTokens)))} | ${integer(sum(group.map((child) => child.storyPoints)))} | ${usd(sum(group.map((child) => child.llmCost)))} | ${usd(sum(group.map((child) => child.reviewLlmCost)))} | ${usd(sum(group.map((child) => child.hitlCost)))} | ${usd(sum(group.map((child) => child.infraCost)))} |`;
+            return `| ${laneId} | ${issues} | ${integer(sum(group.map((child) => child.tokens)))} | ${integer(sum(group.map((child) => child.reviewTokens)))} | ${integer(sum(group.map((child) => child.storyPoints)))} | ${usd(sum(group.map((child) => child.llmCost)))} | ${reviewUnpriced ? "Unpriced" : usd(sum(group.map((child) => child.reviewLlmCost)))} | ${usd(sum(group.map((child) => child.hitlCost)))} |`;
         });
 }
 
 function tokens(value: number): string {
-    return `${integer(Math.round(value))} tokens`;
+    return `${integer(value)} tokens`;
+}
+
+function cell(value: string): string {
+    return value.replaceAll("|", "\\|").replaceAll("\n", " ");
 }
 
 function integer(value: number): string {

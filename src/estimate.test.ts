@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { estimateRoadmap, SONNET_46 } from "./estimator.ts";
 import { renderEstimate } from "./format.ts";
@@ -26,6 +27,10 @@ import {
 } from "./theory.ts";
 
 const roadmapBody = await Bun.file(join(import.meta.dir, "..", "test/fixtures/roadmap-263.md")).text();
+const localHistoryTest = test.skipIf(
+    !existsSync(join(import.meta.dir, "../historical-data/pr_token_usage_dataset.json")) ||
+        !existsSync(join(import.meta.dir, "../historical-data/pr_cicd_dataset.json")),
+);
 
 describe("token bins", () => {
     test("maps loads onto the Smith Horn thresholds", () => {
@@ -200,7 +205,8 @@ describe("roadmap estimate", () => {
         expect(estimate.llmCost).toBeCloseTo(0.00072);
         expect(estimate.literalLlmCost).toBeCloseTo(0.0045);
         expect(estimate.hitlCost).toBeCloseTo(75);
-        expect(estimate.infraCost).toBeCloseTo(0.006);
+        expect(estimate.infraCost).toBe(0);
+        expect(estimate.costGaps.some((gap) => gap.category === "infrastructure")).toBe(true);
         expect(estimate.totalCost).toBeCloseTo(
             estimate.llmCost +
                 estimate.hitlCost +
@@ -217,7 +223,7 @@ describe("roadmap estimate", () => {
         expect(renderEstimate(estimate, "octo/example")).toContain("SEEAgent");
     });
 
-    test("scales Codex review tokens and earlier CI spans with author tokens", () => {
+    test("scales Codex review tokens without pricing earlier CI spans", () => {
         const history: HistoricalPullRequest[] = [
             {
                 number: 1,
@@ -269,7 +275,7 @@ describe("roadmap estimate", () => {
         expect(estimate.reviewLlmCost).toBeCloseTo(1.01);
         expect(estimate.reviewPoolTokens).toBeCloseTo(101);
         expect(estimate.reviewPoolCost).toBeCloseTo(101 * (1.01 / 505));
-        expect(estimate.reviewInfraCost).toBeCloseTo(0.012);
+        expect(estimate.reviewInfraCost).toBe(0);
         expect(estimate.totalCost).toBeGreaterThan(estimate.llmCost + estimate.hitlCost + estimate.infraCost);
     });
 
@@ -322,10 +328,10 @@ describe("roadmap estimate", () => {
         expect(estimate.calibration.medianReviewTokenRatio).toBe(0);
         expect(estimate.reviewTokens).toBe(200);
         expect(estimate.reviewLlmCost).toBeCloseTo(4);
-        expect(estimate.reviewInfraCost).toBeCloseTo(0.012);
+        expect(estimate.reviewInfraCost).toBe(0);
     });
 
-    test("estimates the October 2026 roadmap from the historical datasets", async () => {
+    localHistoryTest("estimates the October 2026 roadmap from the historical datasets", async () => {
         const history = await loadHistoricalPullRequests();
         const sample = history.filter(isCalibrationSample);
         expect(history).toHaveLength(177);
@@ -367,8 +373,8 @@ describe("roadmap estimate", () => {
         const markdown = renderEstimate(estimate, "geoffsee/rubix-kube");
         expect(markdown).toContain("geoffsee/rubix-kube#263");
         expect(markdown).toContain("| Token-threshold | Raw sprint load E_raw |");
-        expect(markdown).toContain("| SEEAgent | Negotiated story points E* |");
-        expect(markdown).toContain("| ACEM | Total_Cost |");
+        expect(markdown).toContain("| SEEAgent | Reconstructed negotiated story points E* |");
+        expect(markdown).toContain("| Accounting | Priced subtotal |");
         expect(markdown).toContain("| T19 | #126 |");
     });
 });

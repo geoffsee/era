@@ -2,18 +2,29 @@ import {
     EMPTY_REVIEW_POOL,
     epicNumberFromTitle,
     type HistoricalPullRequest,
+    type HistoricalAuthorOverhead,
     isCalibrationSample,
     type ReviewPool,
 } from "./historical-data-repository.ts";
+import {
+    type CostGap,
+    type InfrastructureBilling,
+    type TokenQuantities,
+    type TokenRateCard,
+    forecastAuthorOverhead,
+    nonNegative,
+    priceInfrastructure,
+    priceTokens,
+} from "./accounting.ts";
 import { buildDependencyGraph, isEpicTitle, laneForIssue, parseRoadmap } from "./roadmap.ts";
+import { type ForecastPlan, HUMAN_ACTIVITIES, type RemainingWork, parseForecastPlan } from "./forecast-plan.ts";
+import { type ChronologicalValidation, chronologicalTokenValidation } from "./validation.ts";
 import {
     baseTokensFromStoryPoints,
     complexityWeight,
     contextFactor,
     hitlCost,
-    infraCost,
     llmCost,
-    llmCostWithCacheReads,
     longestPath,
     meanAbsoluteError,
     meanMagnitudeRelativeError,
@@ -31,13 +42,24 @@ import {
     totalCost,
 } from "./theory.ts";
 
-/** Claude Sonnet 4.6 list prices, the only model in the historical token log. USD per token. */
+/** Assumed future routing; mixed-model history cannot reconstruct model-specific historical bills. */
 export const SONNET_46 = {
     id: "claude-sonnet-4-6",
     inputPerToken: 3 / 1_000_000,
     outputPerToken: 15 / 1_000_000,
     cacheReadPerToken: 0.3 / 1_000_000,
 } as const;
+
+export const DEFAULT_AUTHOR_RATE_CARD: TokenRateCard = {
+    inputPerToken: SONNET_46.inputPerToken,
+    outputPerToken: SONNET_46.outputPerToken,
+    cacheReadPerToken: SONNET_46.cacheReadPerToken,
+    model: SONNET_46.id,
+    currency: "USD",
+    asOf: "2026-10-05",
+    source: "https://platform.claude.com/docs/en/about-claude/pricing",
+    provenance: "assumed",
+};
 
 /** GitHub-hosted 2-core Linux runner list price. Public repositories are not billed for standard runners. */
 export const LINUX_RUNNER_USD_PER_MINUTE = 0.006;
@@ -59,6 +81,7 @@ export type Assumptions = {
 };
 
 export type Calibration = {
+    authorTokenMix: TokenQuantities;
     sampleCount: number;
     medianTotalTokens: number;
     medianUncachedInput: number;
@@ -114,6 +137,13 @@ export type ChildEstimate = {
     reviewTokens: number;
     reviewLlmCost: number;
     reviewInfraCost: number;
+    sizing: {
+        basis: "repository-median" | "epic-median" | "comparables";
+        sampleCount: number;
+        comparablePrs: number[];
+        authorBlocks: number;
+        source: string;
+    };
 };
 
 export type Backtest = {
@@ -145,14 +175,28 @@ export type RoadmapEstimate = {
     reviewPoolTokens: number;
     reviewPoolCost: number;
     totalCost: number;
+    /** Priced components only. totalCost is retained as a compatibility alias, not a full delivery total. */
+    pricedSubtotalUsd: number;
+    authorOverheadTokens: number;
+    authorOverheadCost: number;
+    allAgentTokens: number;
+    costGaps: CostGap[];
+    scopeDiagnostics: string[];
+    authorRateCard: TokenRateCard;
+    historyGeneratedAt?: string;
+    humanHours: number;
+    explicitHumanActivities: boolean;
+    planSource?: string;
     illustrativeTokenCost: number;
     backtest: Backtest;
+    tokenValidation: ChronologicalValidation;
     assumptions: Assumptions;
 };
 
 export function calibrate(
     history: readonly HistoricalPullRequest[],
     pool: ReviewPool = EMPTY_REVIEW_POOL,
+    rates: TokenRateCard = DEFAULT_AUTHOR_RATE_CARD,
 ): Calibration {
     const sample = history.filter(isCalibrationSample);
     if (sample.length === 0) throw new Error("no merged pull requests with token usage");
@@ -166,19 +210,22 @@ export function calibrate(
 
     const baseTokens = sample.map((pullRequest) => positionIndependentBase(pullRequest));
     const outputTokens = sample.map((pullRequest) => billedOutput(pullRequest));
-    const outputShares = sample.map((pullRequest, index) => outputTokens[index]! / baseTokens[index]!);
+    const outputShares = outputTokens.map((tokens, index) =>
+        baseTokens[index]! > 0 ? tokens / baseTokens[index]! : 0,
+    );
     const gammas = sample.map((pullRequest, index) => {
         const points = labels.get(pullRequest.number)!;
         return baseTokens[index]! / (points * complexityWeight(points));
     });
 
-    const failed = sum(sample.map((pullRequest) => pullRequest.failedJobs));
-    const finished = sum(sample.map((pullRequest) => pullRequest.failedJobs + pullRequest.successfulJobs));
+    const observedCi = sample.filter((pullRequest) => pullRequest.cicdObserved !== false);
+    const failed = sum(observedCi.map((pullRequest) => pullRequest.failedJobs));
+    const finished = sum(observedCi.map((pullRequest) => pullRequest.failedJobs + pullRequest.successfulJobs));
     const rejectionRate = finished === 0 ? 0 : failed / finished;
-    const dirtyTurns = sample
+    const dirtyTurns = observedCi
         .filter((pullRequest) => pullRequest.failedJobs > 0)
         .map((pullRequest) => pullRequest.turns);
-    const cleanTurns = sample
+    const cleanTurns = observedCi
         .filter((pullRequest) => pullRequest.failedJobs === 0)
         .map((pullRequest) => pullRequest.turns);
     const extraInvocations =
@@ -189,17 +236,20 @@ export function calibrate(
     const ratios = sample
         .filter((pullRequest) => pullRequest.uncachedInputTokens > 0)
         .map((pullRequest) => pullRequest.totalInputTokens / pullRequest.uncachedInputTokens);
-    const alpha = Math.max(0, median(ratios) - 1);
-    // Each child issue is its own agent session, so the segment ends at i = N.
+    const alpha = ratios.length === 0 ? 0 : Math.max(0, median(ratios) - 1);
+    // Legacy formula evaluates context at the segment end; it does not alter the priced subtotal.
     const factor = contextFactor(alpha, 1, 1);
 
     let billed = 0;
     let consumed = 0;
     for (const pullRequest of sample) {
-        billed +=
-            pullRequest.uncachedInputTokens * SONNET_46.inputPerToken +
-            pullRequest.cacheReadTokens * SONNET_46.cacheReadPerToken +
-            billedOutput(pullRequest) * SONNET_46.outputPerToken;
+        if (
+            pullRequest.uncachedInputTokens + pullRequest.cacheReadTokens + pullRequest.outputTokens !==
+            pullRequest.totalTokens
+        ) {
+            throw new Error(`token categories do not reconcile for historical PR #${pullRequest.number}`);
+        }
+        billed += priceTokens(pullRequest, rates);
         consumed += pullRequest.totalTokens;
     }
 
@@ -217,12 +267,18 @@ export function calibrate(
     }
 
     return {
+        authorTokenMix: {
+            uncachedInputTokens: sum(sample.map((row) => row.uncachedInputTokens)) / consumed,
+            cacheReadTokens: sum(sample.map((row) => row.cacheReadTokens)) / consumed,
+            outputTokens: sum(sample.map((row) => row.outputTokens)) / consumed,
+        },
         sampleCount: sample.length,
         medianTotalTokens: median(totals),
         medianUncachedInput: median(sample.map((pullRequest) => pullRequest.uncachedInputTokens)),
         medianOutputTokens: median(outputTokens),
         medianCacheRead: median(sample.map((pullRequest) => pullRequest.cacheReadTokens)),
-        medianCicdSeconds: median(sample.map((pullRequest) => pullRequest.cicdSeconds)),
+        medianCicdSeconds:
+            observedCi.length === 0 ? 0 : median(observedCi.map((pullRequest) => pullRequest.cicdSeconds)),
         rejectionRate,
         extraInvocations,
         revisionFactor: revisionFactor(rejectionRate, extraInvocations),
@@ -324,21 +380,67 @@ export function estimateRoadmap(input: {
     history: readonly HistoricalPullRequest[];
     assumptions?: Assumptions;
     reviewPool?: ReviewPool;
+    authorOverhead?: HistoricalAuthorOverhead;
+    authorRateCard?: TokenRateCard;
+    infrastructureBilling?: InfrastructureBilling;
+    historyGeneratedAt?: string;
+    plan?: ForecastPlan;
+    issueStates?: ReadonlyMap<number, string>;
 }): RoadmapEstimate {
+    const plan = input.plan ? parseForecastPlan(input.plan) : undefined;
     const assumptions = input.assumptions ?? DEFAULT_ASSUMPTIONS;
+    for (const [name, value] of Object.entries(assumptions)) nonNegative(value, name);
+    const authorRateCard = plan?.authorRateCard ?? input.authorRateCard ?? DEFAULT_AUTHOR_RATE_CARD;
     const parsed = parseRoadmap(input.issueBody);
-    const graph = buildDependencyGraph(parsed.lanes, parsed.gates);
-    const calibration = calibrate(input.history, input.reviewPool ?? EMPTY_REVIEW_POOL);
+    const graph = buildDependencyGraph(parsed.lanes, parsed.gates, input.titles);
+    for (const id of Object.keys(plan?.work ?? {})) {
+        if (!graph.nodes.includes(Number(id)))
+            throw new Error(`work plan #${id} is outside remaining roadmap membership`);
+        if (isEpicTitle(input.titles.get(Number(id)) ?? ""))
+            throw new Error(`work plan #${id} is an epic tracker; size its delivery children`);
+    }
+    const calibration = calibrate(input.history, input.reviewPool ?? EMPTY_REVIEW_POOL, authorRateCard);
 
     const children: ChildEstimate[] = [];
     let epicCount = 0;
     for (const issue of graph.nodes) {
-        const title = input.titles.get(issue) ?? "";
+        const title = input.titles.get(issue);
+        if (!title?.trim()) throw new Error(`Missing issue title for #${issue}`);
         if (isEpicTitle(title)) {
             epicCount += 1;
             continue;
         }
-        children.push(estimateChild(issue, title, graph.lanes, calibration, assumptions));
+        const work = plan?.work?.[String(issue)];
+        if (work?.accepted) {
+            graph.diagnostics.push(`Excluded accepted delivery #${issue}: ${work.source}`);
+            continue;
+        }
+        if (input.issueStates?.get(issue)?.toLowerCase() === "closed") {
+            graph.diagnostics.push(
+                `Issue #${issue} is closed but has no explicit acceptance evidence; its remaining load is still estimated.`,
+            );
+        }
+        const peers = work?.comparablePrs?.map((number) => {
+            const peer = input.history.find(
+                (candidate) => candidate.number === number && isCalibrationSample(candidate),
+            );
+            if (!peer) throw new Error(`Comparable PR #${number} for issue #${issue} has no merged author usage`);
+            return peer;
+        });
+        children.push(
+            estimateChild(
+                issue,
+                title,
+                graph.lanes,
+                peers ? calibrate(peers, EMPTY_REVIEW_POOL, authorRateCard) : calibration,
+                assumptions,
+                authorRateCard,
+                work,
+                plan?.humanActivities !== undefined,
+                input.history,
+                calibration,
+            ),
+        );
     }
 
     const weights = new Map<number, number>(graph.nodes.map((issue) => [issue, 0]));
@@ -349,15 +451,75 @@ export function estimateRoadmap(input: {
     const rawTokens = sum(children.map((child) => child.tokens));
     const llm = sum(children.map((child) => child.llmCost));
     const literalLlm = sum(children.map((child) => child.literalLlmCost));
-    const hitl = sum(children.map((child) => child.hitlCost));
-    const infra = sum(children.map((child) => child.infraCost));
+    const hitl =
+        plan?.humanActivities !== undefined
+            ? sum(plan.humanActivities.map((activity) => activity.hours * activity.usdPerHour))
+            : sum(children.map((child) => child.hitlCost));
+    const humanHours =
+        plan?.humanActivities !== undefined
+            ? sum(plan.humanActivities.map((activity) => activity.hours))
+            : children.length *
+              (assumptions.checkpointsPerTask * assumptions.reviewHours +
+                  calibration.rejectionRate * assumptions.reworkHours);
+    const billing = plan?.infrastructureBilling ?? input.infrastructureBilling;
+    const infra = priceInfrastructure(billing);
     const reviewTokens = sum(children.map((child) => child.reviewTokens));
     const reviewLlm = sum(children.map((child) => child.reviewLlmCost));
     const reviewInfra = sum(children.map((child) => child.reviewInfraCost));
     const poolTokens = calibration.unattributedReviewTokens + calibration.unpairedReviewTokens;
-    const reviewPoolTokens =
-        calibration.coveredAuthorTokens === 0 ? poolTokens : poolTokens * (rawTokens / calibration.coveredAuthorTokens);
+    const reviewPoolDenominator =
+        calibration.coveredAuthorTokens || sum(input.history.filter(isCalibrationSample).map((row) => row.totalTokens));
+    const reviewPoolTokens = poolTokens * (rawTokens / reviewPoolDenominator);
     const reviewPoolCost = reviewPoolTokens * calibration.reviewPricePerToken;
+    const overhead = forecastAuthorOverhead(rawTokens, input.authorOverhead, authorRateCard);
+    const authorOverheadTokens = overhead?.tokens ?? 0;
+    const authorOverheadCost = overhead?.cost ?? 0;
+    const pricedSubtotalUsd =
+        totalCost(llm, hitl, infra) + reviewLlm + reviewInfra + reviewPoolCost + authorOverheadCost;
+    const costGaps: CostGap[] = [
+        {
+            category: "live-infrastructure",
+            detail: "Disposable hosts, reboot/soak occupancy, performance hosts, storage, transfer, publication and separately billed tools are unpriced.",
+        },
+        {
+            category: "cache-writes",
+            detail: "The author extract has no separate cache-write quantity; distinct cache-write charges are unpriced.",
+        },
+    ];
+    const missingHuman =
+        plan?.humanActivities === undefined
+            ? HUMAN_ACTIVITIES.filter((activity) => activity !== "review")
+            : HUMAN_ACTIVITIES.filter((activity) => !plan.humanActivities!.some((row) => row.activity === activity));
+    if (missingHuman.length > 0)
+        costGaps.push({
+            category: "human-delivery",
+            detail: `Unpriced human activities: ${missingHuman.join(", ")}. Provided activities are assumptions; missing hours are not zero.`,
+        });
+    if (!overhead)
+        costGaps.push({
+            category: "author-orchestration",
+            detail: "Author orchestration usage or its allocation denominator is unavailable.",
+        });
+    if (!billing)
+        costGaps.push({
+            category: "infrastructure",
+            detail: "Runner billing applicability and billable job quantities are unavailable. Historical CI spans are not priced as runner minutes.",
+        });
+    if (calibration.reviewPricePerToken === 0)
+        costGaps.push({
+            category: "agent-review",
+            detail: "Review usage/pricing observations are unavailable; missing joins do not establish zero review cost.",
+        });
+    if (calibration.reviewPricePerToken > 0 && calibration.reviewCoverage < 1)
+        costGaps.push({
+            category: "review-coverage",
+            detail: `Review calibration covers ${calibration.reviewCoveredPullRequests}/${calibration.sampleCount} merged PRs; remaining review loads are imputed, and missing workflows may change cost.`,
+        });
+    for (const detail of calibration.reviewGaps) costGaps.push({ category: "review-source", detail });
+    costGaps.push({
+        category: "billing-agreement",
+        detail: `Future author routing/rates are ${authorRateCard.provenance}; historical review dollar rates, subscription allowances, credit conversion and account-specific terms are not verified for the forecast.`,
+    });
 
     return {
         issueNumber: input.issueNumber,
@@ -380,9 +542,21 @@ export function estimateRoadmap(input: {
         reviewInfraCost: reviewInfra,
         reviewPoolTokens,
         reviewPoolCost,
-        totalCost: totalCost(llm, hitl, infra) + reviewLlm + reviewInfra + reviewPoolCost,
+        totalCost: pricedSubtotalUsd,
+        pricedSubtotalUsd,
+        authorOverheadTokens,
+        authorOverheadCost,
+        allAgentTokens: rawTokens + reviewTokens + reviewPoolTokens + authorOverheadTokens,
+        costGaps,
+        scopeDiagnostics: graph.diagnostics,
+        authorRateCard,
+        historyGeneratedAt: input.historyGeneratedAt,
+        humanHours,
+        explicitHumanActivities: plan?.humanActivities !== undefined,
+        planSource: plan?.source,
         illustrativeTokenCost: rawTokens * calibration.blendedPricePerToken,
         backtest: leaveOneOut(input.history, calibration),
+        tokenValidation: chronologicalTokenValidation(input.history),
         assumptions,
     };
 }
@@ -393,14 +567,21 @@ function estimateChild(
     lanes: ReturnType<typeof buildDependencyGraph>["lanes"],
     calibration: Calibration,
     assumptions: Assumptions,
+    rates: TokenRateCard,
+    work: RemainingWork | undefined,
+    explicitHumanActivities: boolean,
+    history: readonly HistoricalPullRequest[],
+    repositoryCalibration: Calibration,
 ): ChildEstimate {
     const epic = epicNumberFromTitle(title);
-    const tokens =
-        epic !== null && calibration.epicTokens.has(epic)
+    const typicalTokens =
+        !work?.comparablePrs && epic !== null && calibration.epicTokens.has(epic)
             ? calibration.epicTokens.get(epic)!
             : calibration.medianTotalTokens;
+    const authorBlocks = work?.authorBlocks ?? 1;
+    const tokens = typicalTokens * authorBlocks;
     const analogPoints =
-        epic !== null && calibration.epicPoints.has(epic)
+        !work?.comparablePrs && epic !== null && calibration.epicPoints.has(epic)
             ? calibration.epicPoints.get(epic)!
             : calibration.medianStoryPoints;
     const storyPoints = negotiateEstimates([
@@ -413,23 +594,18 @@ function estimateChild(
     const base = baseTokensFromStoryPoints(storyPoints, calibration.gammaPerPoint, weight);
     const outputTokens = base * calibration.outputShareOfBase;
     const inputTokens = base - outputTokens;
-    const scale = tokens / calibration.medianTotalTokens;
+    const reviewCalibration = calibration.reviewCoveredPullRequests > 0 ? calibration : repositoryCalibration;
     const reviewRatio =
-        epic !== null && calibration.epicReviewRatio.has(epic)
-            ? calibration.epicReviewRatio.get(epic)!
-            : calibration.medianReviewTokenRatio;
-    const reviewTokens = reviewRatio > 0 ? tokens * reviewRatio : calibration.medianAbsoluteReviewTokens;
-    const reviewCicdSeconds =
-        reviewRatio > 0
-            ? (epic !== null && calibration.epicReviewCicdSeconds.has(epic)
-                  ? calibration.epicReviewCicdSeconds.get(epic)!
-                  : calibration.medianReviewCicdSeconds) * scale
-            : calibration.medianAbsoluteReviewCicdSeconds;
+        epic !== null && reviewCalibration.epicReviewRatio.has(epic)
+            ? reviewCalibration.epicReviewRatio.get(epic)!
+            : reviewCalibration.medianReviewTokenRatio;
+    const reviewTokens =
+        reviewRatio > 0 ? tokens * reviewRatio : reviewCalibration.medianAbsoluteReviewTokens * authorBlocks;
     const priced = {
         inputTokens,
         outputTokens,
-        priceInPerToken: SONNET_46.inputPerToken,
-        priceOutPerToken: SONNET_46.outputPerToken,
+        priceInPerToken: rates.inputPerToken,
+        priceOutPerToken: rates.outputPerToken,
         revisionFactor: calibration.revisionFactor,
         contextFactor: calibration.contextFactor,
     };
@@ -445,22 +621,45 @@ function estimateChild(
         baseTokens: base,
         inputTokens,
         outputTokens,
-        llmCost: llmCostWithCacheReads({
-            ...priced,
-            priceCacheReadPerToken: SONNET_46.cacheReadPerToken,
-        }),
+        llmCost: priceTokens(
+            {
+                uncachedInputTokens: tokens * calibration.authorTokenMix.uncachedInputTokens,
+                cacheReadTokens: tokens * calibration.authorTokenMix.cacheReadTokens,
+                outputTokens: tokens * calibration.authorTokenMix.outputTokens,
+            },
+            rates,
+        ),
         literalLlmCost: llmCost(priced),
-        hitlCost: hitlCost({
-            checkpoints: assumptions.checkpointsPerTask,
-            reviewHours: assumptions.reviewHours,
-            rejectionRate: calibration.rejectionRate,
-            reworkHours: assumptions.reworkHours,
-            hourlyRate: assumptions.hourlyRateUsd,
-        }),
-        infraCost: infraCost((calibration.medianCicdSeconds * scale) / 60, LINUX_RUNNER_USD_PER_MINUTE),
+        hitlCost: explicitHumanActivities
+            ? 0
+            : hitlCost({
+                  checkpoints: assumptions.checkpointsPerTask,
+                  reviewHours: assumptions.reviewHours,
+                  rejectionRate: repositoryCalibration.rejectionRate,
+                  reworkHours: assumptions.reworkHours,
+                  hourlyRate: assumptions.hourlyRateUsd,
+              }),
+        infraCost: 0,
         reviewTokens,
-        reviewLlmCost: reviewTokens * calibration.reviewPricePerToken,
-        reviewInfraCost: infraCost(reviewCicdSeconds / 60, LINUX_RUNNER_USD_PER_MINUTE),
+        reviewLlmCost: reviewTokens * reviewCalibration.reviewPricePerToken,
+        reviewInfraCost: 0,
+        sizing: {
+            basis: work?.comparablePrs
+                ? "comparables"
+                : epic !== null && calibration.epicTokens.has(epic)
+                  ? "epic-median"
+                  : "repository-median",
+            sampleCount:
+                work?.comparablePrs?.length ??
+                history.filter(
+                    (row) =>
+                        isCalibrationSample(row) &&
+                        (epic === null || !calibration.epicTokens.has(epic) || row.epic === epic),
+                ).length,
+            comparablePrs: work?.comparablePrs ?? [],
+            authorBlocks,
+            source: work?.source ?? "Historical merged PR usage; remaining activity count assumed to be one typical PR",
+        },
     };
 }
 
@@ -505,7 +704,7 @@ function positionIndependentBase(pullRequest: HistoricalPullRequest): number {
 }
 
 function billedOutput(pullRequest: HistoricalPullRequest): number {
-    return pullRequest.outputTokens + pullRequest.thinkingTokens;
+    return pullRequest.outputTokens;
 }
 
 function sum(values: readonly number[]): number {

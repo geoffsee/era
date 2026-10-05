@@ -18,6 +18,8 @@ export type DependencyGraph = {
     nodes: number[];
     predecessors: Map<number, Set<number>>;
     lanes: Lane[];
+    /** Dependencies that could not be represented faithfully in the issue-level DAG. */
+    diagnostics: string[];
 };
 
 export function isEpicTitle(title: string): boolean {
@@ -44,7 +46,7 @@ export function parseRoadmap(body: string): { lanes: Lane[]; gates: Gate[] } {
             });
             continue;
         }
-        const gateMatch = head.match(/^(C\d+[a-z]?)\s+(.*)$/);
+        const gateMatch = head.match(/^([CG]\d+[a-z]?)\s+(.*)$/);
         if (gateMatch && cells.length >= 3) {
             gates.push({
                 id: gateMatch[1]!,
@@ -56,6 +58,8 @@ export function parseRoadmap(body: string): { lanes: Lane[]; gates: Gate[] } {
     }
     if (lanes.length === 0) throw new Error("roadmap issue body has no lane table");
     if (gates.length === 0) throw new Error("roadmap issue body has no gate table");
+    if (new Set(lanes.map((lane) => lane.id)).size !== lanes.length) throw new Error("roadmap has duplicate lane IDs");
+    if (new Set(gates.map((gate) => gate.id)).size !== gates.length) throw new Error("roadmap has duplicate gate IDs");
     return { lanes, gates };
 }
 
@@ -64,17 +68,26 @@ export function parseRoadmap(body: string): { lanes: Lane[]; gates: Gate[] } {
  * A gate that only releases a later milestone of one of its inputs does not add an edge.
  * An edge that would cycle back to an upstream milestone is dropped.
  */
-export function buildDependencyGraph(lanes: readonly Lane[], gates: readonly Gate[]): DependencyGraph {
+export function buildDependencyGraph(
+    lanes: readonly Lane[],
+    gates: readonly Gate[],
+    titles: ReadonlyMap<number, string> = new Map(),
+): DependencyGraph {
     const active = lanes.filter((lane) => lane.state !== "complete");
     const nodes = unique(active.flatMap((lane) => lane.issues)).sort((a, b) => a - b);
     const nodeSet = new Set(nodes);
     const predecessors = new Map<number, Set<number>>(nodes.map((node) => [node, new Set()]));
     const successors = new Map<number, Set<number>>(nodes.map((node) => [node, new Set()]));
+    const diagnostics = new Set<string>();
 
     const addEdge = (before: number, after: number) => {
-        if (before === after || !nodeSet.has(before) || !nodeSet.has(after)) return;
+        if (before === after) return;
+        if (!nodeSet.has(before) || !nodeSet.has(after)) return;
         if (predecessors.get(after)!.has(before)) return;
-        if (reaches(after, before, successors)) return;
+        if (reaches(after, before, successors)) {
+            diagnostics.add(`Dropped dependency #${before} → #${after}: it would create a cycle.`);
+            return;
+        }
         predecessors.get(after)!.add(before);
         successors.get(before)!.add(after);
     };
@@ -91,14 +104,54 @@ export function buildDependencyGraph(lanes: readonly Lane[], gates: readonly Gat
 
     const laneById = new Map(lanes.map((lane) => [lane.id, lane]));
     const gateById = new Map(gates.map((gate) => [gate.id, gate]));
+    const knownIssues = new Set(lanes.flatMap((lane) => lane.issues));
+
+    const acceptanceIssues = (issue: number): Set<number> => {
+        if (!nodeSet.has(issue) && knownIssues.has(issue)) return new Set([issue]);
+        const title = titles.get(issue) ?? "";
+        if (!isEpicTitle(title)) return new Set([issue]);
+        const epic = title.match(/^\[Epic\s+E(\d+)\b/i)?.[1];
+        const children =
+            epic === undefined
+                ? []
+                : nodes.filter((number) => {
+                      const childTitle = titles.get(number) ?? "";
+                      return (
+                          !isEpicTitle(childTitle) && Number(childTitle.match(/\bE(\d+)\.\d+\b/)?.[1]) === Number(epic)
+                      );
+                  });
+        if (children.length > 0) return new Set(children);
+        diagnostics.add(`Epic #${issue} has no mapped remaining children; its acceptance dependency is unresolved.`);
+        return new Set([issue]);
+    };
 
     const requirementIssues = (token: string, stack: readonly string[]): Set<number> => {
-        if (stack.includes(token)) return new Set();
-        if (token.startsWith("#")) return new Set([Number(token.slice(1))]);
-        if (token.startsWith("T")) return new Set(laneById.get(token)?.issues ?? []);
+        if (stack.includes(token)) {
+            diagnostics.add(`Unresolved gate cycle: ${[...stack, token].join(" → ")}.`);
+            return new Set();
+        }
+        if (token.startsWith("#")) {
+            const issue = Number(token.slice(1).split(":")[0]);
+            if (token.includes(":")) {
+                diagnostics.add(
+                    `Milestone ${token} is preserved in the source but approximated by whole-issue #${issue} acceptance.`,
+                );
+            }
+            if (!knownIssues.has(issue))
+                diagnostics.add(`Dependency ${token} is outside lane membership; completion is unresolved.`);
+            return acceptanceIssues(issue);
+        }
+        if (token.startsWith("T")) {
+            const lane = laneById.get(token);
+            if (!lane) diagnostics.add(`Unresolved lane dependency ${token}.`);
+            return new Set(lane?.issues.flatMap((issue) => [...acceptanceIssues(issue)]) ?? []);
+        }
         const gate = gateById.get(token);
         const issues = new Set<number>();
-        if (!gate) return issues;
+        if (!gate) {
+            diagnostics.add(`Unresolved gate dependency ${token}.`);
+            return issues;
+        }
         for (const requirement of gate.requires) {
             for (const issue of requirementIssues(requirement, [...stack, token])) issues.add(issue);
         }
@@ -112,10 +165,19 @@ export function buildDependencyGraph(lanes: readonly Lane[], gates: readonly Gat
         }
         for (const unlock of gate.unlocks) {
             const unlocked = unlock.startsWith("#")
-                ? [Number(unlock.slice(1))]
+                ? [...acceptanceIssues(Number(unlock.slice(1).split(":")[0]))]
                 : unlock.startsWith("T")
                   ? (laneById.get(unlock)?.issues ?? [])
                   : [];
+            if (unlock.includes(":")) {
+                diagnostics.add(
+                    `Milestone ${unlock} is preserved in the source but approximated by whole-issue entry.`,
+                );
+            }
+            if (unlock.startsWith("T") && !laneById.has(unlock)) diagnostics.add(`Unresolved lane unlock ${unlock}.`);
+            if (unlock.startsWith("#") && !knownIssues.has(Number(unlock.slice(1).split(":")[0])))
+                diagnostics.add(`Unlock ${unlock} is outside lane membership; completion is unresolved.`);
+            if (/^[CG]/.test(unlock)) diagnostics.add(`Gate unlock ${unlock} is not represented as an execution edge.`);
             for (const after of unlocked) {
                 if (required.has(after)) continue;
                 for (const before of required) addEdge(before, after);
@@ -123,7 +185,7 @@ export function buildDependencyGraph(lanes: readonly Lane[], gates: readonly Gat
         }
     }
 
-    return { nodes, predecessors, lanes: active };
+    return { nodes, predecessors, lanes: active, diagnostics: [...diagnostics] };
 }
 
 export function laneForIssue(lanes: readonly Lane[], issue: number): Lane | undefined {
@@ -141,7 +203,7 @@ function splitRow(line: string): string[] {
 export function referenceTokens(cell: string): string[] {
     const tokens: string[] = [];
     for (const part of cell.split(",")) {
-        const match = part.match(/C\d+[a-z]?|T\d+|#\d+/);
+        const match = part.match(/\b[CG]\d+[a-z]?\b|\bT\d+\b|#\d+(?::[\w-]+)?/);
         if (match) tokens.push(match[0]);
     }
     return tokens;

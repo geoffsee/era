@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadHistoricalData, loadHistoricalPullRequests } from "./historical-data-repository.ts";
 
 const dataDirectory = join(import.meta.dir, "..", "historical-data");
+const localHistoryTest = test.skipIf(
+    !existsSync(join(dataDirectory, "pr_token_usage_dataset.json")) ||
+        !existsSync(join(dataDirectory, "pr_cicd_dataset.json")),
+);
 
 type JsonSchema = {
     $ref?: string;
@@ -264,6 +269,10 @@ describe("historical data schemas", () => {
                 successfulJobs: 1,
                 cicdSeconds: 20,
                 reviewTokens: 0,
+                cicdObserved: true,
+                reviewObserved: false,
+                createdAt: "2026-10-02T00:00:00Z",
+                mergedAt: "2026-10-02T00:01:00Z",
             });
             await Bun.write(
                 join(directory, "pr_review_dataset.json"),
@@ -291,14 +300,28 @@ describe("historical data schemas", () => {
                 reviewTokens: 4,
                 reviewCostUsd: 0.2,
                 reviewCicdSeconds: 15,
+                reviewObserved: true,
             });
             expect(joined.reviewPool.unattributedReviewTokens).toBe(5);
+            expect(joined.authorOverhead).toMatchObject({ totalTokens: 35, attributedAuthorTokens: 95 });
+            expect(joined.repository).toBe("octo/example");
+            expect(joined.generatedAt).toBe("2026-10-02T00:00:00.000Z");
+            await Bun.write(join(directory, "pr_cicd_dataset.json"), "[]");
+            expect((await loadHistoricalData(directory)).pullRequests[0]?.cicdObserved).toBe(false);
+            await Bun.write(
+                join(directory, "pr_review_dataset.json"),
+                JSON.stringify({
+                    metadata: { repository: "foreign/repo" },
+                    pull_requests: [],
+                }),
+            );
+            await expect(loadHistoricalData(directory)).rejects.toThrow("repository identities do not match");
         } finally {
             await rm(directory, { recursive: true, force: true });
         }
     });
 
-    test("the local extracts follow the schema and the aggregation rules", async () => {
+    localHistoryTest("the local extracts follow the schema and the aggregation rules", async () => {
         const tokenSchema = (await Bun.file(
             join(dataDirectory, "pr_token_usage_dataset.schema.json"),
         ).json()) as JsonSchema;

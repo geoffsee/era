@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "source": "Illustrative central scenario from https://github.com/geoffsee/rubix-kube/issues/359#issuecomment-5996076272 (2026-10-05); quantities and labor are assumptions, not observed effort or owner acceptance.",
+  "work": {
+    "335": { "authorBlocks": 1, "source": "Production boundary decision and contract amendment" },
+    "336": { "authorBlocks": 1, "source": "Restore ledgers and disposition of the prior roadmap" },
+    "338": { "authorBlocks": 1, "source": "Payload pins and real digests" },
+    "339": { "authorBlocks": 2, "source": "Production arm64 cell plus remaining build matrix" },
+    "341": { "authorBlocks": 2, "source": "Protected live API implementation and positive/negative Linux evidence" },
+    "342": { "authorBlocks": 2, "source": "Linux workload path implementation and live integration" },
+    "343": { "authorBlocks": 1, "source": "Repeatable disposable Linux integration job" },
+    "345": { "authorBlocks": 1, "source": "CRI runtime provider and live assertion" },
+    "346": { "authorBlocks": 1, "source": "Kubelet and apiserver workload gaps" },
+    "348": { "authorBlocks": 2, "source": "Candidate-bound receipt schema and reader" },
+    "349": { "authorBlocks": 1, "source": "Receipt-bound release assembly" },
+    "351": { "authorBlocks": 1, "source": "Conformance subset selection and qualification run" },
+    "352": { "authorBlocks": 2, "source": "Recovery and 24-hour soak acceptance activities" },
+    "353": { "authorBlocks": 1, "source": "Paired performance captures" },
+    "354": { "authorBlocks": 2, "source": "Migration implementation and live rehearsal" },
+    "355": { "authorBlocks": 1, "source": "Addons, egress and D2K acceptance" },
+    "357": { "authorBlocks": 2, "source": "Fresh-operator rehearsal and final handoff" },
+    "358": { "authorBlocks": 1, "source": "Publication and release signoff" }
+  },
+  "humanActivities": [
+    { "activity": "discovery-design", "hours": 12, "usdPerHour": 100 },
+    { "activity": "implementation-operations", "hours": 20, "usdPerHour": 100 },
+    { "activity": "coordination", "hours": 10, "usdPerHour": 100 },
+    { "activity": "review", "hours": 27, "usdPerHour": 100 },
+    { "activity": "integration-acceptance", "hours": 39, "usdPerHour": 100 }
+  ],
+  "infrastructureBilling": { "kind": "public-standard" }
+}

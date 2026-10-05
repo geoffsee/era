@@ -2,6 +2,8 @@
 
 Three distinct estimation logics are in play. The first sizes agent work in its native unit (tokens). The second keeps the existing story-point scale and changes who produces and debates the estimate. The third decomposes agentic cost into token, oversight, and infrastructure streams and maps legacy sizing metrics onto those streams. Each is formalized below from the source logic, not as executable code.
 
+The executable delivery forecast adapts these formulas to inclusive usage logs: disjoint fresh/cache-read/output quantities are priced directly without another RF/CF multiplier; reasoning is already included in output. Author orchestration and review are separate allocations. Explicit human activities replace the checkpoint proxy, and runner cost requires billable quantities. Results are priced subtotals with unpriced gaps. The legacy formula and reconstructed story-point accuracy remain diagnostics. Cached historical consumption alone cannot establish a required number of implementation tasks; dependency-path tokens cannot establish elapsed time. See [requirements](REQUIREMENTS.md#forecast-plans) for implemented semantics and chronological retrospective token validation.
+
 ## 1. Token-threshold sprint sizing
 
 Smith Horn’s practitioner model replaces hour- or point-based item sizes with fixed token bins, on the claim that agents consume tokens rather than human time, so the planning unit should be the consumption unit.

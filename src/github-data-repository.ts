@@ -5,10 +5,14 @@ export type RoadmapIssue = {
     title: string;
     body: string;
     titles: Map<number, string>;
+    issueStates: Map<number, string>;
 };
 
-export async function loadRoadmapIssue(owner: string, repo: string): Promise<RoadmapIssue> {
+export async function loadRoadmapIssue(owner: string, repo: string, issueNumber?: number): Promise<RoadmapIssue> {
+    if (issueNumber !== undefined && (!Number.isSafeInteger(issueNumber) || issueNumber <= 0))
+        throw new Error("roadmap issue must be a positive integer");
     const titles = new Map<number, string>();
+    const issueStates = new Map<number, string>();
     const openRoadmaps: Array<{ number: number; title: string }> = [];
 
     for (let page = 1; ; page++) {
@@ -22,6 +26,7 @@ export async function loadRoadmapIssue(owner: string, repo: string): Promise<Roa
         for (const issue of data) {
             if (issue.pull_request) continue;
             titles.set(issue.number, issue.title);
+            issueStates.set(issue.number, issue.state);
             if (issue.state === "open" && /roadmap/i.test(issue.title)) {
                 openRoadmaps.push({ number: issue.number, title: issue.title });
             }
@@ -29,23 +34,25 @@ export async function loadRoadmapIssue(owner: string, repo: string): Promise<Roa
         if (data.length < 100) break;
     }
 
-    if (openRoadmaps.length !== 1) {
+    if (issueNumber === undefined && openRoadmaps.length !== 1) {
         const found = openRoadmaps.map((issue) => `#${issue.number} ${issue.title}`).join("; ");
         throw new Error(
             `Expected one open Roadmap issue in ${owner}/${repo}, found ${openRoadmaps.length}${found ? `: ${found}` : ""}`,
         );
     }
 
-    const roadmap = openRoadmaps[0]!;
+    const selected = issueNumber ?? openRoadmaps[0]!.number;
     const { data } = await githubClient.rest.issues.get({
         owner,
         repo,
-        issue_number: roadmap.number,
+        issue_number: selected,
     });
+    if (data.pull_request) throw new Error(`#${selected} is a pull request, not a roadmap issue`);
     return {
         number: data.number,
         title: data.title,
         body: data.body ?? "",
         titles,
+        issueStates,
     };
 }

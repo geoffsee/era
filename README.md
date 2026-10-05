@@ -10,14 +10,14 @@ Install [Bun](https://bun.sh), then:
 bun install
 ```
 
-Put two local extracts in `historical-data/`. `bun test` and `bun start` read them. They stay untracked; the JSON Schemas next to them are part of the repo.
+Put two local extracts in `historical-data/` for estimation. They stay untracked; the JSON Schemas next to them are part of the repo. Tests use synthetic fixtures without these files, and automatically enable two additional local-extract checks when both files exist.
 
 - `pr_token_usage_dataset.json` — agent token totals per pull request. Schema: [`historical-data/pr_token_usage_dataset.schema.json`](historical-data/pr_token_usage_dataset.schema.json).
 - `pr_cicd_dataset.json` — GitHub check runs, commit statuses, and the CI wall-clock span for those same pull requests. Schema: [`historical-data/pr_cicd_dataset.schema.json`](historical-data/pr_cicd_dataset.schema.json).
 
-The files join on `pr_number`. Build the token file from Antigravity CLI (`agy`) conversation databases. Build the CI file from the GitHub API. A pull request missing from the CI file counts as zero failed jobs, zero successful jobs, and zero CI seconds.
+The files join on `pr_number`. Build the token file from Antigravity CLI (`agy`) conversation databases. Build the CI file from the GitHub API. Missing CI rows retain an observation flag and are excluded from CI calibration; missing spans do not establish free compute.
 
-`pr_review_dataset.json` is optional. Build it from local Codex sessions. A pull request missing from it counts as no attributed review. Schema: [`historical-data/pr_review_dataset.schema.json`](historical-data/pr_review_dataset.schema.json).
+`pr_review_dataset.json` is optional. Build it from local Codex sessions. Missing review joins are evidence gaps, not observations of zero review effort. Schema: [`historical-data/pr_review_dataset.schema.json`](historical-data/pr_review_dataset.schema.json).
 
 ```bash
 bun src/extract-codex-review.ts owner/name
@@ -61,7 +61,7 @@ SELECT idx, hex(metadata) FROM steps WHERE step_type = 15 AND metadata IS NOT NU
 
 `step_type` 132 is a tool call. Walk those payloads in `idx` order and split the timeline on `git checkout`, `gh pr view`, `gh pr diff`, `gh pr checks`, `gh pr merge`, commit messages, and subagent prompts. `step_type` 15 is a model response. Its `metadata` blob is Protobuf: field 1 is uncached prompt tokens, field 5 is prompt-cache reads, field 3 is completion tokens, and field 6 is extended thinking tokens. The same blob names the model.
 
-Attribute each model step to the pull request active at that `idx`. Steps before the first pull-request boundary go in `orchestration_and_overhead`. The estimator reads only `pull_requests`.
+Attribute each model step to the pull request active at that `idx`. Steps before the first pull-request boundary go in `orchestration_and_overhead`. The estimator allocates that overhead separately, using its own token mix and ratio to all PR-attributed author usage, once per forecast.
 
 For each rollup, sum those model steps:
 
@@ -132,13 +132,13 @@ Live roadmap lookup uses `GITHUB_PAT` or `GH_TOKEN`.
 
 `bun start owner/name` reads that repository and prints a markdown table. `GITHUB_PAT` or `GH_TOKEN` needs access to the repository's issues.
 
-The command looks for one open issue whose title contains "roadmap", then reads the lane table, gate table, and issue titles specified in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md). Put that repository's extracts in `historical-data/` first. The calibration is those pull requests.
+The command looks for one open issue whose title contains "roadmap", or accepts an explicit issue number (`bun start owner/name 359 forecast-plan.json`). It reads the lane table, gate table, and issue titles specified in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md). Put that repository's extracts in `historical-data/` first; their repository identity must match the target. Both `C` and `G` gate IDs are supported. Milestone references are preserved, with diagnostics for their approximation in the issue-level graph.
 
 The table has three models from `docs/THEORY.md`. The sources are under [Bibliography](#bibliography).
 
 - **Token-threshold** sizes the remaining child issues in tokens. `E_raw` is the sum. `E_eff` is the longest dependency path.
 - **SEEAgent** negotiates story points from the historical token scale.
-- **ACEM** prices tokens, human review, CI minutes, and the Codex review loop.
+- **Delivery costs** add disjoint author token categories, shared orchestration, review usage, supplied human activities, and explicitly billable runner quantities. The result is a priced subtotal with named unpriced costs, not a full cash budget. The legacy ACEM RF/CF formula remains a diagnostic outside this subtotal because historical consumption already includes retries and context.
 
 ```bash
 export GITHUB_PAT=github_pat_...
@@ -147,9 +147,23 @@ bun start owner/name
 
 `bun test` checks the formulas, the tracker, and the GitHub Action.
 
+The read-only CLI needs no tracker credentials and can use an offline snapshot:
+
+```bash
+bun src/cli.ts estimate --repository geoffsee/rubix-kube --issue 359 \
+  --body test/fixtures/roadmap-359.md --titles test/fixtures/roadmap-359-titles.json \
+  --history historical-data --plan test/fixtures/roadmap-359-central-plan.json
+```
+
+The example plan records 25 assumed author blocks and 108 assumed human hours from the issue comment. It is an illustrative scenario, not measured effort or a confidence interval. [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md#forecast-plans) documents plan fields: remaining quantities, named comparable PRs, acceptance evidence, human activity hours/rates, future author rate cards and runner billing. Without a plan each child uses one typical historical PR load and checkpoint-only human labor; the report keeps all remaining gaps visible.
+
+Prices apply the observed fresh/cache-read/output mix under a dated future model assumption. Output already contains reasoning. The historical extract aggregates multiple models, so repricing it does not reconstruct historical invoices. Cache writes, live hosts, soak occupancy and account-specific billing remain gaps until their quantities and terms are available. Public repository visibility alone does not establish that every runner is free.
+
+The report also compares repository-median and epic-median token baselines chronologically: training includes only PRs merged before the target PR's creation, with at least three training samples and at least three epic peers before using an epic median. Missing dates and warmup exclusions are counted. This is retrospective evaluation of final extracts; it does not validate named comparable-PR plans, actual dollars, or immutable prospective predictions. The reconstructed story-point scores are labeled separately. Freeze prospective forecasts before work and collect actual billing and human-effort receipts to validate delivery cost.
+
 ## Track accuracy
 
-Rows are keyed by `owner/name`, a subject such as `issue:4` or `pr:12`, a model, and a metric (`tokens`, `story_points`, `usd`, or `cicd_seconds`). The hosted tracker is `https://era-tracker.seemueller.workers.dev`. Set `ERA_API_URL` or `api-url` when the tracker is a different Worker.
+Rows are keyed by `owner/name`, a subject such as `issue:4` or `pr:12`, a model, and a metric (`tokens`, `story_points`, `usd_subtotal`, or `cicd_seconds`). New delivery-cost predictions use model `delivery-cost-v2` and metric `usd_subtotal`; legacy `acem`/`usd` rows remain separate. The hosted tracker is `https://era-tracker.seemueller.workers.dev`. Set `ERA_API_URL` or `api-url` when the tracker is a different Worker.
 
 The CLI uses a static admin token, because a shell has no GitHub OIDC identity. Set both, or pass `--api` and `--token`:
 
