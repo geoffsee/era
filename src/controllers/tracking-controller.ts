@@ -10,17 +10,17 @@ import {
     TypedRouter,
 } from "@di-framework/http/portable";
 import { AccuracyService } from "../services/accuracy-service.ts";
-import { assertAccess, HttpError, type Identity } from "../auth/access.ts";
+import { assertAccess, HttpError, requestIdentity, type Identity } from "../auth/access.ts";
 import type { AccuracyReport, Observation, Prediction } from "../tracking/model.ts";
 
 @Controller({ singleton: false })
 export class TrackingController {
-    private readonly router = TypedRouter<[{ identity?: Identity }]>();
+    private readonly router = TypedRouter();
 
     constructor(@Component(AccuracyService) private readonly service: AccuracyService) {}
 
-    fetch(request: Request, deps: { identity?: Identity }) {
-        return this.router.fetch(request, deps);
+    fetch(request: Request) {
+        return this.router.fetch(request);
     }
     @Endpoint({ summary: "Service health" })
     health = this.router.get("/health", () => json({ ok: true }));
@@ -29,9 +29,9 @@ export class TrackingController {
     recordPredictions = this.router.post<
         RequestSpec<Json<{ predictions: unknown[] }>>,
         ResponseSpec<{ stored: number }>
-    >("/v1/predictions", async (request, deps) => {
+    >("/v1/predictions", async (request) => {
         const rows = arrayField(request.content.predictions, "predictions");
-        guardRows(deps.identity, rows);
+        guardRows(requestIdentity(request), rows);
         const stored = await this.service.recordPredictions(rows);
         return json({ stored });
     });
@@ -40,9 +40,9 @@ export class TrackingController {
     recordObservations = this.router.post<
         RequestSpec<Json<{ observations: unknown[] }>>,
         ResponseSpec<{ stored: number }>
-    >("/v1/observations", async (request, deps) => {
+    >("/v1/observations", async (request) => {
         const rows = arrayField(request.content.observations, "observations");
-        guardRows(deps.identity, rows);
+        guardRows(requestIdentity(request), rows);
         const stored = await this.service.recordObservations(rows);
         return json({ stored });
     });
@@ -51,8 +51,8 @@ export class TrackingController {
     accuracy = this.router.get<
         RequestSpec<QueryParams<{ repository: string }>>,
         ResponseSpec<{ repository: string; reports: AccuracyReport[] }>
-    >("/v1/accuracy", async (request, deps) => {
-        const repository = requiredRepository(request.query.repository, deps.identity);
+    >("/v1/accuracy", async (request) => {
+        const repository = requiredRepository(request.query.repository, requestIdentity(request));
         const reports = await this.service.accuracy(repository);
         return json({ repository, reports });
     });
@@ -60,9 +60,9 @@ export class TrackingController {
     @Endpoint({ summary: "List repositories that have tracker rows" })
     repositories = this.router.get<RequestSpec, ResponseSpec<{ repositories: string[] }>>(
         "/v1/repositories",
-        async (_request, deps) => {
+        async (request) => {
             const repositories = await this.service.repositories();
-            const identity = deps.identity;
+            const identity = requestIdentity(request);
             if (identity && identity.kind !== "admin") {
                 return json({
                     repositories: repositories.filter((repository) =>
@@ -80,8 +80,8 @@ export class TrackingController {
     listPredictions = this.router.get<
         RequestSpec<QueryParams<{ repository: string }>>,
         ResponseSpec<{ predictions: Prediction[] }>
-    >("/v1/predictions", async (request, deps) => {
-        const repository = requiredRepository(request.query.repository, deps.identity);
+    >("/v1/predictions", async (request) => {
+        const repository = requiredRepository(request.query.repository, requestIdentity(request));
         return json({ predictions: await this.service.predictions(repository) });
     });
 
@@ -89,8 +89,8 @@ export class TrackingController {
     listObservations = this.router.get<
         RequestSpec<QueryParams<{ repository: string }>>,
         ResponseSpec<{ observations: Observation[] }>
-    >("/v1/observations", async (request, deps) => {
-        const repository = requiredRepository(request.query.repository, deps.identity);
+    >("/v1/observations", async (request) => {
+        const repository = requiredRepository(request.query.repository, requestIdentity(request));
         return json({ observations: await this.service.observations(repository) });
     });
 }

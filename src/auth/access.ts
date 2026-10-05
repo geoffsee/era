@@ -1,3 +1,5 @@
+import { authenticated, authFailed, createPrincipal, noCredential, type AuthStrategy } from "@di-framework/auth";
+import { requirePrincipal } from "@di-framework/auth/http";
 import { verifyGitHubOidc } from "./oidc.ts";
 
 export type Identity =
@@ -25,27 +27,62 @@ export function assertAccess(identity: Identity, repository: string): void {
     }
 }
 
-export async function authenticate(
-    request: Request,
-    options: {
-        apiToken: string;
-        audience: string;
-        authenticateEra?: (request: Request) => Promise<Identity>;
-        verifyOidc?: (token: string, audience: string) => Promise<{ repository: string; workflowRef?: string }>;
-    },
-): Promise<Identity> {
-    const header = request.headers.get("authorization") ?? "";
-    const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-    if (!token) throw new HttpError("unauthorized", 401);
-    if (options.apiToken && safeEqual(token, options.apiToken)) return { kind: "admin" };
-    if (token.startsWith("era_") && options.authenticateEra) return options.authenticateEra(request);
-    if (token.split(".").length !== 3) throw new HttpError("unauthorized", 401);
-    try {
-        const claims = await (options.verifyOidc ?? verifyGitHubOidc)(token, options.audience);
-        return { kind: "github", repository: claims.repository, workflowRef: claims.workflowRef };
-    } catch {
-        throw new HttpError("unauthorized", 401);
-    }
+export type CredentialOptions = {
+    apiToken: string;
+    audience: string;
+    authenticateEra?: (request: Request) => Promise<Identity>;
+    verifyOidc?: (token: string, audience: string) => Promise<{ repository: string; workflowRef?: string }>;
+};
+
+/** ERA credential recognition plugs into the framework's HTTP guard. */
+export function eraStrategy(options: CredentialOptions): AuthStrategy {
+    return {
+        name: "bearer",
+        challenge: () => 'Bearer realm="era"',
+        async authenticate({ request }) {
+            const header = request.headers.get("authorization") ?? "";
+            if (!header) return noCredential();
+            const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+            if (!token) return authFailed("malformed_credential", "Expected a bearer credential");
+            let identity: Identity;
+            if (options.apiToken && safeEqual(token, options.apiToken)) identity = { kind: "admin" };
+            else if (token.startsWith("era_") && options.authenticateEra) {
+                try {
+                    identity = await options.authenticateEra(request);
+                } catch (error) {
+                    if (error instanceof HttpError) throw error;
+                    throw new HttpError("Authentication service is unavailable; retry", 503);
+                }
+            } else {
+                if (token.split(".").length !== 3) return authFailed("invalid_credentials", "Unrecognized credential");
+                try {
+                    const claims = await (options.verifyOidc ?? verifyGitHubOidc)(token, options.audience);
+                    identity = { kind: "github", repository: claims.repository, workflowRef: claims.workflowRef };
+                } catch {
+                    return authFailed("invalid_token", "GitHub OIDC verification failed");
+                }
+            }
+            return authenticated(
+                createPrincipal({
+                    sub:
+                        identity.kind === "admin"
+                            ? "era:admin"
+                            : identity.kind === "user"
+                              ? identity.subject
+                              : (identity.workflowRef ?? identity.repository),
+                    method: identity.kind === "github" ? "bearer" : "api-key",
+                    claims: { identity },
+                }),
+            );
+        },
+    };
+}
+
+/** Read only the guard-attached principal; request bodies cannot supply identity. */
+export function requestIdentity(request: unknown): Identity {
+    const identity = requirePrincipal(request).claims?.identity as Identity | undefined;
+    if (!identity) throw new HttpError("unauthorized", 401);
+    return identity;
 }
 
 function safeEqual(left: string, right: string): boolean {

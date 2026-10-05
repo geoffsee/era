@@ -273,6 +273,31 @@ export class AuthService {
         if (checkAccess) await this.checkAccess(key);
         return { kind: "user", subject: key.userId, keyId: key.id, repository: key.repository };
     }
+    async tokens(identity: Identity, cursor: string) {
+        if (identity.kind !== "user") throw new HttpError("Use a user token to list your keys", 403);
+        const rows = await this.store.listKeys(identity.subject, cursor);
+        const now = this.store.now();
+        return {
+            tokens: rows.slice(0, 100).map((key) => ({
+                id: key.id,
+                repository: key.repository,
+                label: key.label,
+                createdAt: key.createdAt,
+                expiresAt: key.expiresAt,
+                status: key.disabled ? "revoked" : key.expiresAt && key.expiresAt <= now ? "expired" : "active",
+            })),
+            nextCursor: rows.length > 100 ? rows[99]!.id : undefined,
+        };
+    }
+
+    async revokeToken(identity: Identity, id: string): Promise<void> {
+        if (!/^[A-Za-z0-9_-]{43}$/.test(id)) throw new HttpError("Invalid token ID", 400);
+        const key = await this.store.get<RepositoryKey>("key", id);
+        if (identity.kind !== "admin" && (identity.kind !== "user" || key?.userId !== identity.subject))
+            throw new HttpError("Token not found", 404);
+        if (key) await this.store.credentials().saveApiKey({ ...key, disabled: true });
+    }
+
     private async connection(subject: string): Promise<{ record: Connection; tokens: OAuthTokens }> {
         const record = await this.store.get<Connection>("connection", subject);
         if (!record) throw new HttpError("GitHub login required", 401);
