@@ -1,6 +1,6 @@
 import { Component } from "@di-framework/core/decorators";
-import { EntityRepository, InMemoryRepository, Repository } from "@di-framework/repo/portable";
-import { CompositeSqlAdapter } from "./composite-sql-adapter.ts";
+import { InMemoryRepository, Repository } from "@di-framework/repo/portable";
+import { SqliteRepository } from "./sqlite-repository.ts";
 import type { Observation, Prediction, ScoredPair } from "./model.ts";
 
 export const SQL_DATABASE = "era.sql-database";
@@ -122,61 +122,41 @@ export interface SqlDatabase {
     prepare(query: string): SqlStatement;
 }
 
-class LedgerEntityRepository<E extends Record<string, unknown>> extends EntityRepository<E, string> {
-    constructor(private readonly sql: CompositeSqlAdapter<E>) {
-        super(sql);
-    }
-
-    forRepository(repository: string): Promise<E[]> {
-        return this.sql.findWhere({ repository });
+@Repository({ singleton: false })
+export class PredictionRepository extends SqliteRepository<Prediction> {
+    constructor(@Component(SQL_DATABASE) db: SqlDatabase) {
+        super(db, {
+            table: "predictions",
+            entityToRow: ({ recordedAt, ...row }) => ({ ...row, recorded_at: recordedAt }),
+            rowToEntity: (row) => ({
+                repository: row.repository as string,
+                subject: row.subject as string,
+                model: row.model as string,
+                metric: row.metric as string,
+                predicted: row.predicted as number,
+                recordedAt: row.recorded_at as string,
+            }),
+            keyColumns: ["repository", "subject", "model", "metric"],
+        });
     }
 }
 
 @Repository({ singleton: false })
-export class PredictionRepository extends LedgerEntityRepository<Prediction> {
+export class ObservationRepository extends SqliteRepository<Observation> {
     constructor(@Component(SQL_DATABASE) db: SqlDatabase) {
-        super(
-            new CompositeSqlAdapter(
-                db,
-                {
-                    table: "predictions",
-                    entityToRow: ({ recordedAt, ...row }) => ({ ...row, recorded_at: recordedAt }),
-                    rowToEntity: (row) => ({
-                        repository: row.repository as string,
-                        subject: row.subject as string,
-                        model: row.model as string,
-                        metric: row.metric as string,
-                        predicted: row.predicted as number,
-                        recordedAt: row.recorded_at as string,
-                    }),
-                },
-                ["repository", "subject", "model", "metric"],
-            ),
-        );
-    }
-}
-
-@Repository({ singleton: false })
-export class ObservationRepository extends LedgerEntityRepository<Observation> {
-    constructor(@Component(SQL_DATABASE) db: SqlDatabase) {
-        super(
-            new CompositeSqlAdapter(
-                db,
-                {
-                    table: "observations",
-                    entityToRow: ({ observedAt, ...row }) => ({ ...row, observed_at: observedAt }),
-                    rowToEntity: (row) => ({
-                        repository: row.repository as string,
-                        subject: row.subject as string,
-                        metric: row.metric as string,
-                        actual: row.actual as number,
-                        source: row.source as string,
-                        observedAt: row.observed_at as string,
-                    }),
-                },
-                ["repository", "subject", "metric"],
-            ),
-        );
+        super(db, {
+            table: "observations",
+            entityToRow: ({ observedAt, ...row }) => ({ ...row, observed_at: observedAt }),
+            rowToEntity: (row) => ({
+                repository: row.repository as string,
+                subject: row.subject as string,
+                metric: row.metric as string,
+                actual: row.actual as number,
+                source: row.source as string,
+                observedAt: row.observed_at as string,
+            }),
+            keyColumns: ["repository", "subject", "metric"],
+        });
     }
 }
 
@@ -219,11 +199,11 @@ export class D1Ledger implements Ledger {
     }
 
     predictions(repository: string): Promise<Prediction[]> {
-        return this.predictionRows.forRepository(repository);
+        return this.predictionRows.findWhere({ repository });
     }
 
     observations(repository: string): Promise<Observation[]> {
-        return this.observationRows.forRepository(repository);
+        return this.observationRows.findWhere({ repository });
     }
 
     async repositories(): Promise<string[]> {

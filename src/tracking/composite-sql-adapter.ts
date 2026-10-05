@@ -13,7 +13,11 @@ export class CompositeSqlAdapter<E extends Row> extends SqlStorageAdapter<E, str
         keys: readonly string[],
     ) {
         super(options);
-        if (!keys.length || keys.some((key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)))
+        if (
+            !keys.length ||
+            new Set(keys).size !== keys.length ||
+            keys.some((key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+        )
             throw new Error("Composite keys must be SQL identifiers");
         this.keyColumns = [...keys];
     }
@@ -44,7 +48,7 @@ export class CompositeSqlAdapter<E extends Row> extends SqlStorageAdapter<E, str
         if (
             !Array.isArray(values) ||
             values.length !== this.keyColumns.length ||
-            values.some((v) => typeof v !== "string")
+            values.some((v) => typeof v !== "string" && (typeof v !== "number" || !Number.isFinite(v)))
         )
             throw new Error("Invalid composite identity");
         return { sql: this.keyColumns.map((key) => `"${key}" = ?`).join(" AND "), values };

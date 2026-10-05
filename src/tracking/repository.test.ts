@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { createLedger } from "./composition.ts";
 import { CompositeSqlAdapter } from "./composite-sql-adapter.ts";
 import { PredictionRepository, SCHEMA_SQL } from "./ledger.ts";
+import { SqliteRepository } from "./sqlite-repository.ts";
 import { BunSqlDatabase } from "./sqlite.ts";
 
 function fixture() {
@@ -92,6 +93,40 @@ test("composite adapter inserts conditionally and refuses non-atomic transaction
             }),
         ).rejects.toThrow("Interactive transactions");
         expect(called).toBe(false);
+    } finally {
+        database.close();
+    }
+});
+
+test("SqliteRepository supports mapped single-column numeric identities and filtered reads", async () => {
+    const database = new Database(":memory:");
+    try {
+        database.run("CREATE TABLE samples (sample_id INTEGER PRIMARY KEY, label TEXT NOT NULL)");
+        const repository = new SqliteRepository<{ id: number; label: string }>(new BunSqlDatabase(database), {
+            table: "samples",
+            keyColumns: ["sample_id"],
+            entityToRow: ({ id, label }) => ({ sample_id: id, label }),
+            rowToEntity: (row) => ({ id: row.sample_id as number, label: row.label as string }),
+        });
+        const key = repository.key(7);
+        expect(await repository.saveIfAbsent({ id: 7, label: "first" })).toBe(true);
+        expect(await repository.saveIfAbsent({ id: 7, label: "duplicate" })).toBe(false);
+        await repository.save({ id: 8, label: "second" });
+        expect(await repository.findById(key)).toEqual({ id: 7, label: "first" });
+        expect(await repository.exists(key)).toBe(true);
+        expect(await repository.count()).toBe(2);
+        expect(await repository.count({ label: "first" })).toBe(1);
+        expect(await repository.findWhere({ label: "first" })).toEqual([{ id: 7, label: "first" }]);
+        expect(await repository.findWhere({ label: "' OR 1=1 --" })).toEqual([]);
+        expect(() => repository.key()).toThrow("Invalid composite identity");
+        expect(() => repository.key(Number.NaN)).toThrow("Invalid composite identity");
+        expect(
+            () =>
+                new SqliteRepository(new BunSqlDatabase(database), {
+                    table: "samples",
+                    keyColumns: ["sample_id", "sample_id"],
+                }),
+        ).toThrow("Composite keys must be SQL identifiers");
     } finally {
         database.close();
     }
