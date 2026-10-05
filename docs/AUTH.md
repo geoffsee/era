@@ -1,5 +1,7 @@
 # User authentication
 
+The hosted tracker uses [ERA Roadmap](https://github.com/apps/era-roadmap), owned by `geoffsee`. Repository owners can [install the app](https://github.com/apps/era-roadmap/installations/new) with **Only select repositories**, then complete `era login`. Other users do not need to register their own app. The app requests Metadata read access only.
+
 Users obtain a repository-scoped ERA token with GitHub login:
 
 ```sh

@@ -4,6 +4,12 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-02",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "PUBLIC_API_URL": "https://era-tracker.seemueller.workers.dev",
+    "GITHUB_APP_ID": "5200437",
+    "GITHUB_APP_SLUG": "era-roadmap",
+    "GITHUB_CLIENT_ID": "Iv23liAC1F3dIN0hyUr3"
+  },
   "triggers": { "crons": ["0 * * * *"] },
   "d1_databases": [
     {
