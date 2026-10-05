@@ -1,6 +1,9 @@
 import { verifyGitHubOidc } from "./oidc.ts";
 
-export type Identity = { kind: "admin" } | { kind: "github"; repository: string; workflowRef?: string };
+export type Identity =
+    | { kind: "admin" }
+    | { kind: "github"; repository: string; workflowRef?: string }
+    | { kind: "user"; subject: string; repository: string; keyId: string };
 
 export class HttpError extends Error {
     constructor(
@@ -13,8 +16,12 @@ export class HttpError extends Error {
 
 export function assertAccess(identity: Identity, repository: string): void {
     if (identity.kind === "admin") return;
-    if (identity.repository !== repository) {
-        throw new HttpError(`GitHub Actions for ${identity.repository} cannot access ${repository}`, 403);
+    if (
+        identity.kind === "user"
+            ? identity.repository.toLowerCase() !== repository.toLowerCase()
+            : identity.repository !== repository
+    ) {
+        throw new HttpError(`Credential for ${identity.repository} cannot access ${repository}`, 403);
     }
 }
 
@@ -23,6 +30,7 @@ export async function authenticate(
     options: {
         apiToken: string;
         audience: string;
+        authenticateEra?: (request: Request) => Promise<Identity>;
         verifyOidc?: (token: string, audience: string) => Promise<{ repository: string; workflowRef?: string }>;
     },
 ): Promise<Identity> {
@@ -30,6 +38,7 @@ export async function authenticate(
     const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
     if (!token) throw new HttpError("unauthorized", 401);
     if (options.apiToken && safeEqual(token, options.apiToken)) return { kind: "admin" };
+    if (token.startsWith("era_") && options.authenticateEra) return options.authenticateEra(request);
     if (token.split(".").length !== 3) throw new HttpError("unauthorized", 401);
     try {
         const claims = await (options.verifyOidc ?? verifyGitHubOidc)(token, options.audience);

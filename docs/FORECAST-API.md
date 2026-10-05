@@ -2,7 +2,7 @@
 
 The Worker owns forecast calculation and Markdown generation. The CLI collects local extracts and GitHub or saved roadmap inputs, serializes them, and calls the API. Shared types and pure estimation code do not import the Bun filesystem loader. The Worker does not read local paths or fetch GitHub on the caller's behalf.
 
-Both endpoints require `Authorization: Bearer <token>` and `Content-Type: application/json`. The existing static admin token can access any repository; GitHub Actions OIDC identities can access only their own repository. Authentication runs before body parsing/calculation. Use HTTPS for hosted calls; HTTP examples apply to localhost development.
+Both endpoints require `Authorization: Bearer <token>` and `Content-Type: application/json`. [GitHub login](AUTH.md) issues ERA user keys scoped to one repository, with current GitHub write access rechecked at most five minutes apart. The existing static admin token can access any repository; GitHub Actions OIDC identities can access only their own repository. Authentication runs before body parsing/calculation. Use HTTPS for hosted calls; HTTP examples apply to localhost development.
 
 ## POST /v1/estimates
 

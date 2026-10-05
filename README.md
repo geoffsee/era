@@ -169,7 +169,16 @@ Forecast operations use `POST /v1/estimates`: `estimate` calculates without savi
 
 Rows are keyed by `owner/name`, a subject such as `issue:4` or `pr:12`, a model, and a metric (`tokens`, `story_points`, `usd_subtotal`, or `cicd_seconds`). New delivery-cost predictions use model `delivery-cost-v2` and metric `usd_subtotal`; legacy `acem`/`usd` rows remain separate. The hosted tracker is `https://era-tracker.seemueller.workers.dev`. Set `ERA_API_URL` or `api-url` when the tracker is a different Worker.
 
-The CLI uses a static admin token, because a shell has no GitHub OIDC identity. Set both, or pass `--api` and `--token`:
+Users sign in through GitHub and receive a repository-scoped ERA token:
+
+```bash
+bun src/cli.ts login --api https://era-tracker.seemueller.workers.dev --repository owner/name
+bun src/cli.ts accuracy --repository owner/name
+```
+
+The CLI saves the credential automatically. Login works from SSH/headless terminals using the printed verification URL and code. GitHub write access and a selected ERA GitHub App installation are required. Keys expire after 30 days; `tokens`, `revoke-token` and `logout` manage them. See [authentication and operator setup](docs/AUTH.md) for the required Worker configuration and migration.
+
+Explicit API credentials override saved login. The operator can set both, or pass `--api` and `--token`:
 
 ```bash
 export ERA_API_URL=https://era-tracker.seemueller.workers.dev
@@ -191,7 +200,7 @@ bun src/cli.ts observations \
 bun src/cli.ts accuracy --repository owner/name
 ```
 
-On a machine that deployed the Worker, the token is `API_TOKEN` in `.dev.vars`: `export ERA_API_TOKEN="$(cut -d= -f2 .dev.vars)"`.
+The operator's `ERA_API_TOKEN` is the matching Worker `API_TOKEN` secret. Normal user keys are issued through login.
 
 `accuracy` prints MAE, MMRE, and PRED(0.5). **Scale** is the median of actual / predicted. Multiply the next forecast for that model and metric by scale.
 
@@ -242,7 +251,7 @@ bun run api
 
 For local forecast testing, set `ERA_API_URL=http://localhost:8787` and `ERA_API_TOKEN` to the local `API_TOKEN`, then run the same CLI commands. The Worker uses its configured D1 binding for recorded predictions and observations; calculation-only requests do not store the supplied snapshot or history. Estimation requires the Worker version with `/v1/estimates`, so deploy that version before using the new CLI against an existing hosted tracker.
 
-`bun run deploy` publishes the Worker in `wrangler.jsonc`. Put `API_TOKEN=...` in `.dev.vars` and set the same value with `wrangler secret put API_TOKEN`. That secret is the CLI admin token. Workflows use OIDC and do not need it. Point `ERA_API_URL` and the action's `api-url` at the deployed URL. The OIDC audience is that URL's origin.
+`bun run deploy` publishes the Worker in `wrangler.jsonc`. Put `API_TOKEN=...` in `.dev.vars` and set the same value with `wrangler secret put API_TOKEN`. That secret is the operator admin token. Workflows use OIDC and do not need it. Point `ERA_API_URL` and the action's `api-url` at the deployed URL. The OIDC audience is that URL's origin. Apply the auth migration and configure the GitHub App and secrets from [the login setup guide](docs/AUTH.md) to enable user onboarding.
 
 ## Bibliography
 

@@ -2,25 +2,29 @@ import { useContainer } from "@di-framework/core/container";
 import {
     Controller,
     Endpoint,
-    json,
-    TypedRouter,
     type Json,
+    json,
     type QueryParams,
     type RequestSpec,
     type ResponseSpec,
+    TypedRouter,
 } from "@di-framework/http/portable";
-import { assertAccess, authenticate, HttpError, type Identity } from "./auth.ts";
-import { AccuracyService, LEDGER } from "./accuracy-service.ts";
-import type { Ledger } from "./ledger.ts";
-import type { AccuracyReport, Observation, Prediction } from "./model.ts";
+import { handleAuthRequest } from "../auth/http.ts";
+import type { AuthService } from "../auth/service.ts";
+import { authFailure } from "../auth/service.ts";
 import { handleForecastRequest } from "../forecast-endpoint.ts";
 import { ForecastInputError } from "../forecast-service.ts";
+import { AccuracyService, LEDGER } from "./accuracy-service.ts";
+import { assertAccess, authenticate, HttpError, type Identity } from "./auth.ts";
+import type { Ledger } from "./ledger.ts";
+import type { AccuracyReport, Observation, Prediction } from "./model.ts";
 
 export type TrackerDeps = {
     ledger: Ledger;
     apiToken: string;
     audience?: string;
     identity?: Identity;
+    auth?: AuthService;
     verifyOidc?: (token: string, audience: string) => Promise<{ repository: string; workflowRef?: string }>;
 };
 
@@ -69,8 +73,14 @@ export class TrackingController {
         async (_request, deps) => {
             const repositories = await resolveService(deps).repositories();
             const identity = deps.identity;
-            if (identity?.kind === "github") {
-                return json({ repositories: repositories.filter((repository) => repository === identity.repository) });
+            if (identity && identity.kind !== "admin") {
+                return json({
+                    repositories: repositories.filter((repository) =>
+                        identity.kind === "user"
+                            ? repository.toLowerCase() === identity.repository.toLowerCase()
+                            : repository === identity.repository,
+                    ),
+                });
             }
             return json({ repositories });
         },
@@ -97,6 +107,8 @@ export class TrackingController {
 
 export async function handleRequest(request: Request, deps: TrackerDeps): Promise<Response> {
     const url = new URL(request.url);
+    const authResponse = await handleAuthRequest(request, deps.auth, deps.apiToken);
+    if (authResponse) return authResponse;
     let identity = deps.identity;
     if (url.pathname !== "/health") {
         try {
@@ -104,9 +116,10 @@ export async function handleRequest(request: Request, deps: TrackerDeps): Promis
                 apiToken: deps.apiToken,
                 audience: deps.audience ?? url.origin,
                 verifyOidc: deps.verifyOidc,
+                authenticateEra: deps.auth ? (req) => deps.auth!.identity(req) : undefined,
             });
         } catch (error) {
-            return failure(error);
+            return authFailure(error);
         }
     }
     try {

@@ -1,5 +1,5 @@
 {
-  "name": "era",
+  "name": "@era.js/era",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -27,6 +27,7 @@
     "typescript": "^7"
   },
   "dependencies": {
+    "@di-framework/auth": "6.0.3",
     "@di-framework/core": "^6.0.3",
     "@di-framework/http": "^6.0.3",
     "@terella/action-framework": "^0.0.3",

@@ -3,8 +3,9 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "agent-work-pointer",
+      "name": "@era.js/era",
       "dependencies": {
+        "@di-framework/auth": "6.0.3",
         "@di-framework/core": "^6.0.3",
         "@di-framework/http": "^6.0.3",
         "@terella/action-framework": "^0.0.3",
@@ -67,6 +68,8 @@
     "@cloudflare/workers-types": ["@cloudflare/workers-types@5.20261002.1", "", {}, "sha512-4DJVJoQrKkB/Q1IJJE5hd793Nupqmn2J+zuikAh2isHq/1s44G5drucgL/RtCa7/7UeJ3y6J7cmhrCZcIVfNVg=="],
 
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
+
+    "@di-framework/auth": ["@di-framework/auth@6.0.3", "", { "peerDependencies": { "@di-framework/core": "^6", "@di-framework/graphql": "^6", "@di-framework/http": "^6", "@di-framework/repo": "^6", "graphql": "^16.8.0 || ^17.0.0", "typescript": "^5" }, "optionalPeers": ["@di-framework/graphql", "@di-framework/http", "@di-framework/repo", "graphql"] }, "sha512-I1V6YDMkISqnDJbMF+X+jbq759X6PXlyRv3MTEUvyqksd8gi32Sv8uvQeYQgFuiOkA4ERAA+yXnaWVCMjhrwLg=="],
 
     "@di-framework/core": ["@di-framework/core@6.0.3", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-R9Dv2ZAfXm07eHL68s15bqOjkO9JH0SQishUutpPCi8GxZPHIOrm/I317fni7VVhEb7HIz8V2caNYQXwwhIcww=="],
 
