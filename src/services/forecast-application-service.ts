@@ -1,4 +1,4 @@
-import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
+import { AccuracyService } from "./accuracy-service.ts";
 import { Component, Container } from "@di-framework/core/decorators";
 import {
     assertFiniteResult,
@@ -14,12 +14,11 @@ import {
 import { parseRoadmapConfig, roadmapHistory } from "../roadmap/roadmap-format.ts";
 import { assertAccess, HttpError, type Identity } from "../auth/access.ts";
 import { tokenBacktest } from "../tracking/backtest.ts";
-import type { ForecastRepository } from "../repositories/forecast-repository.ts";
 import { scoreRepository } from "../tracking/score.ts";
 
 @Container({ singleton: false })
 export class ForecastService {
-    constructor(@Component(FORECAST_REPOSITORY) private readonly forecastRepository: ForecastRepository) {}
+    constructor(@Component(AccuracyService) private readonly accuracyService: AccuracyService) {}
 
     validate(value: unknown, identity: Identity | undefined) {
         return validateRoadmapRequest(authorizedContent(value, identity));
@@ -29,7 +28,7 @@ export class ForecastService {
         const input = parseForecastRequest(authorizedContent(value, identity));
         const result = calculateForecast(input, new Date().toISOString());
         const stored = input.record
-            ? await storage(() => this.forecastRepository.savePredictions(result.predictions))
+            ? await storage(() => this.accuracyService.recordPredictions(result.predictions))
             : 0;
         return { ...result, stored };
     }
@@ -56,13 +55,11 @@ export class ForecastService {
         assertFiniteResult({ ...batch, reports: previewReports });
         const stored = record
             ? {
-                  predictions: await storage(() => this.forecastRepository.savePredictions(batch.predictions)),
-                  observations: await storage(() => this.forecastRepository.saveObservations(batch.observations)),
+                  predictions: await storage(() => this.accuracyService.recordPredictions(batch.predictions)),
+                  observations: await storage(() => this.accuracyService.recordObservations(batch.observations)),
               }
             : { predictions: 0, observations: 0 };
-        const reports = record
-            ? scoreRepository(repository, await storage(() => this.forecastRepository.pairs(repository)))
-            : previewReports;
+        const reports = record ? await storage(() => this.accuracyService.accuracy(repository)) : previewReports;
         return { repository, ...batch, reports, stored };
     }
 }

@@ -1,6 +1,6 @@
+import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { describe, expect, test } from "bun:test";
 import { handleRequest } from "../app/http.ts";
-import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 import { GITHUB_OIDC_ISSUER, verifyGitHubOidc } from "./oidc.ts";
 
 describe("GitHub Actions OIDC", () => {
@@ -19,13 +19,13 @@ describe("GitHub Actions OIDC", () => {
     });
 
     test("a workflow can write only its own repository", async () => {
-        const forecastRepository = new InMemoryForecastRepository();
+        const accuracyService = createTestAccuracyService();
         const verifyOidc = async () => ({ repository: "acme/app" });
         const denied = await handleRequest(
             bearer("POST", "/v1/observations", {
                 observations: [{ repository: "other/app", subject: "pr:1", metric: "tokens", actual: 4 }],
             }),
-            { forecastRepository, apiToken: "static", audience: "https://tracker.test", verifyOidc },
+            { accuracyService, apiToken: "static", audience: "https://tracker.test", verifyOidc },
         );
         expect(denied.status).toBe(403);
 
@@ -33,10 +33,10 @@ describe("GitHub Actions OIDC", () => {
             bearer("POST", "/v1/observations", {
                 observations: [{ repository: "acme/app", subject: "pr:1", metric: "tokens", actual: 4 }],
             }),
-            { forecastRepository, apiToken: "static", audience: "https://tracker.test", verifyOidc },
+            { accuracyService, apiToken: "static", audience: "https://tracker.test", verifyOidc },
         );
         expect(allowed.status).toBe(200);
-        expect(await forecastRepository.repositories()).toEqual(["acme/app"]);
+        expect(await accuracyService.repositories()).toEqual(["acme/app"]);
     });
 });
 

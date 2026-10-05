@@ -1,6 +1,6 @@
-import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
+import { PredictionRepository } from "../repositories/prediction-repository.ts";
+import { ObservationRepository } from "../repositories/observation-repository.ts";
 import { Component, Container } from "@di-framework/core/decorators";
-import type { ForecastRepository } from "../repositories/forecast-repository.ts";
 import {
     assertFinite,
     assertRepository,
@@ -14,31 +14,42 @@ import { scoreRepository } from "../tracking/score.ts";
 
 @Container({ singleton: false })
 export class AccuracyService {
-    constructor(@Component(FORECAST_REPOSITORY) private readonly forecastRepository: ForecastRepository) {}
+    constructor(
+        @Component(PredictionRepository) private readonly predictionRows: PredictionRepository,
+        @Component(ObservationRepository) private readonly observationRows: ObservationRepository,
+    ) {}
 
     async recordPredictions(inputs: readonly unknown[], now = new Date().toISOString()): Promise<number> {
-        return this.forecastRepository.savePredictions(inputs.map((input) => parsePrediction(input, now)));
+        const rows = inputs.map((input) => parsePrediction(input, now));
+        for (const row of rows) await this.predictionRows.save(row);
+        return rows.length;
     }
 
     async recordObservations(inputs: readonly unknown[], now = new Date().toISOString()): Promise<number> {
-        return this.forecastRepository.saveObservations(inputs.map((input) => parseObservation(input, now)));
+        const rows = inputs.map((input) => parseObservation(input, now));
+        for (const row of rows) await this.observationRows.save(row);
+        return rows.length;
     }
 
     async accuracy(repository: string): Promise<AccuracyReport[]> {
         const name = assertRepository(repository);
-        return scoreRepository(name, await this.forecastRepository.pairs(name));
+        return scoreRepository(name, await this.predictionRows.scoredPairs(name));
     }
 
     async predictions(repository: string): Promise<Prediction[]> {
-        return this.forecastRepository.predictions(assertRepository(repository));
+        return this.predictionRows.findForRepository(assertRepository(repository));
     }
 
     async observations(repository: string): Promise<Observation[]> {
-        return this.forecastRepository.observations(assertRepository(repository));
+        return this.observationRows.findForRepository(assertRepository(repository));
     }
 
     async repositories(): Promise<string[]> {
-        return this.forecastRepository.repositories();
+        const names = await Promise.all([
+            this.predictionRows.repositoryNames(),
+            this.observationRows.repositoryNames(),
+        ]);
+        return [...new Set(names.flat())].sort();
     }
 }
 

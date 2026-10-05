@@ -1,23 +1,16 @@
-import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
-import { createForecastRepository } from "../app/composition.ts";
-import { Database } from "bun:sqlite";
+import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { describe, expect, test } from "bun:test";
-import { useContainer } from "@di-framework/core/container";
 import { runCli } from "../cli/cli.ts";
-import { AccuracyService } from "../services/accuracy-service.ts";
 import { tokenBacktest } from "./backtest.ts";
 import { handleRequest } from "../app/http.ts";
-import { BunSqlDatabase } from "../persistence/sqlite.ts";
-import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 import type { HistoricalPullRequest } from "../repositories/historical-data-repository.ts";
 
 const TOKEN = "test-token";
 
 describe("accuracy service", () => {
     test("resolves the forecast repository from the di-framework container and scores paired rows", async () => {
-        const forecastRepository = new InMemoryForecastRepository();
-        useContainer().registerFactory(FORECAST_REPOSITORY, () => forecastRepository, { singleton: false });
-        const service = useContainer().resolve(AccuracyService);
+        const accuracyService = createTestAccuracyService();
+        const service = accuracyService;
         await service.recordPredictions([
             { repository: "acme/app", subject: "issue:1", model: "token-threshold", metric: "tokens", predicted: 100 },
             { repository: "acme/app", subject: "issue:2", model: "token-threshold", metric: "tokens", predicted: 200 },
@@ -35,8 +28,8 @@ describe("accuracy service", () => {
     });
 
     test("keeps repositories separate", async () => {
-        const forecastRepository = new InMemoryForecastRepository();
-        await forecastRepository.savePredictions([
+        const accuracyService = createTestAccuracyService();
+        await accuracyService.recordPredictions([
             {
                 repository: "other/repo",
                 subject: "issue:1",
@@ -46,7 +39,7 @@ describe("accuracy service", () => {
                 recordedAt: "2026-10-02T00:00:00.000Z",
             },
         ]);
-        await forecastRepository.saveObservations([
+        await accuracyService.recordObservations([
             {
                 repository: "acme/app",
                 subject: "issue:1",
@@ -56,16 +49,15 @@ describe("accuracy service", () => {
                 source: "manual",
             },
         ]);
-        expect(await forecastRepository.pairs("acme/app")).toEqual([]);
-        expect(await forecastRepository.repositories()).toEqual(["acme/app", "other/repo"]);
+        expect(await accuracyService.accuracy("acme/app")).toEqual([]);
+        expect(await accuracyService.repositories()).toEqual(["acme/app", "other/repo"]);
     });
 });
 
 describe("sqlite forecast repository", () => {
     test("upserts predictions and joins them to observations", async () => {
-        const forecastRepository = createForecastRepository(new BunSqlDatabase(new Database(":memory:")));
-        await forecastRepository.ensureSchema();
-        await forecastRepository.savePredictions([
+        const accuracyService = createTestAccuracyService();
+        await accuracyService.recordPredictions([
             {
                 repository: "acme/app",
                 subject: "pr:9",
@@ -75,7 +67,7 @@ describe("sqlite forecast repository", () => {
                 recordedAt: "2026-10-02T00:00:00.000Z",
             },
         ]);
-        await forecastRepository.savePredictions([
+        await accuracyService.recordPredictions([
             {
                 repository: "acme/app",
                 subject: "pr:9",
@@ -85,7 +77,7 @@ describe("sqlite forecast repository", () => {
                 recordedAt: "2026-10-02T01:00:00.000Z",
             },
         ]);
-        await forecastRepository.saveObservations([
+        await accuracyService.recordObservations([
             {
                 repository: "acme/app",
                 subject: "pr:9",
@@ -95,17 +87,18 @@ describe("sqlite forecast repository", () => {
                 source: "historical-pr",
             },
         ]);
-        expect(await forecastRepository.predictions("acme/app")).toHaveLength(1);
-        expect((await forecastRepository.pairs("acme/app"))[0]?.predicted).toBe(12);
-        expect((await forecastRepository.pairs("acme/app"))[0]?.actual).toBe(18);
+        expect(await accuracyService.predictions("acme/app")).toHaveLength(1);
+        expect((await accuracyService.predictions("acme/app"))[0]?.predicted).toBe(12);
+        expect((await accuracyService.observations("acme/app"))[0]?.actual).toBe(18);
+        expect((await accuracyService.accuracy("acme/app"))[0]?.mae).toBe(6);
     });
 });
 
 describe("tracker api", () => {
     test("rejects missing tokens and stores a batch", async () => {
-        const forecastRepository = new InMemoryForecastRepository();
+        const accuracyService = createTestAccuracyService();
         const denied = await handleRequest(request("POST", "/v1/predictions", { predictions: [] }), {
-            forecastRepository,
+            accuracyService,
             apiToken: TOKEN,
         });
         expect(denied.status).toBe(401);
@@ -122,29 +115,29 @@ describe("tracker api", () => {
                     },
                 ],
             }),
-            { forecastRepository, apiToken: TOKEN },
+            { accuracyService, apiToken: TOKEN },
         );
         expect(stored.status).toBe(200);
         expect(await stored.json()).toEqual({ stored: 1 });
 
-        const health = await handleRequest(request("GET", "/health"), { forecastRepository, apiToken: TOKEN });
+        const health = await handleRequest(request("GET", "/health"), { accuracyService, apiToken: TOKEN });
         expect(health.status).toBe(200);
     });
 
     test("does not leak one request forecast repository into the next", async () => {
-        const first = new InMemoryForecastRepository();
-        const second = new InMemoryForecastRepository();
+        const first = createTestAccuracyService();
+        const second = createTestAccuracyService();
         await handleRequest(
             authed("POST", "/v1/observations", {
                 observations: [{ repository: "acme/app", subject: "issue:1", metric: "tokens", actual: 3 }],
             }),
-            { forecastRepository: first, apiToken: TOKEN },
+            { accuracyService: first, apiToken: TOKEN },
         );
         await handleRequest(
             authed("POST", "/v1/observations", {
                 observations: [{ repository: "other/app", subject: "issue:1", metric: "tokens", actual: 9 }],
             }),
-            { forecastRepository: second, apiToken: TOKEN },
+            { accuracyService: second, apiToken: TOKEN },
         );
         expect(await first.repositories()).toEqual(["acme/app"]);
         expect(await second.repositories()).toEqual(["other/app"]);
@@ -153,7 +146,7 @@ describe("tracker api", () => {
 
 describe("cli", () => {
     test("records a prediction, an observation, and prints accuracy", async () => {
-        const forecastRepository = new InMemoryForecastRepository();
+        const accuracyService = createTestAccuracyService();
         const lines: string[] = [];
         const io = {
             fetch: (input: string | URL | Request, init?: RequestInit) =>
@@ -162,7 +155,7 @@ describe("cli", () => {
                         ? input
                         : new Request(input instanceof URL ? input.toString() : input, init),
                     {
-                        forecastRepository,
+                        accuracyService,
                         apiToken: TOKEN,
                     },
                 ),
@@ -228,11 +221,10 @@ describe("cli", () => {
         }));
         const batch = tokenBacktest("acme/app", history, "2026-10-02T00:00:00.000Z");
         expect(batch.predictions.map((row) => row.predicted).sort((a, b) => a - b)).toEqual([15, 20, 25]);
-        const forecastRepository = new InMemoryForecastRepository();
-        await forecastRepository.savePredictions(batch.predictions);
-        await forecastRepository.saveObservations(batch.observations);
-        useContainer().registerFactory(FORECAST_REPOSITORY, () => forecastRepository, { singleton: false });
-        const [report] = await useContainer().resolve(AccuracyService).accuracy("acme/app");
+        const accuracyService = createTestAccuracyService();
+        await accuracyService.recordPredictions(batch.predictions);
+        await accuracyService.recordObservations(batch.observations);
+        const [report] = await accuracyService.accuracy("acme/app");
         expect(report?.model).toBe("token-median");
         expect(report?.count).toBe(3);
         expect(report?.scale).not.toBeNull();
@@ -256,3 +248,14 @@ function authed(method: string, path: string, body?: unknown): Request {
         body: body === undefined ? undefined : JSON.stringify(body),
     });
 }
+
+test("batch validation completes before any predictions are saved", async () => {
+    const service = createTestAccuracyService();
+    await expect(
+        service.recordPredictions([
+            { repository: "acme/app", subject: "issue:1", model: "test", metric: "tokens", predicted: 5 },
+            { repository: "acme/app", subject: "issue:2", model: "test", metric: "tokens", predicted: "invalid" },
+        ]),
+    ).rejects.toThrow("predicted must");
+    expect(await service.predictions("acme/app")).toEqual([]);
+});

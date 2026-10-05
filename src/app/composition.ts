@@ -1,22 +1,21 @@
-import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
+import { AccuracyService } from "../services/accuracy-service.ts";
 import { SQL_DATABASE, type SqlDatabase } from "../persistence/database.ts";
 import { useContainer } from "@di-framework/core/container";
 import { ForecastController } from "../controllers/forecast-controller.ts";
 import { TrackingController } from "../controllers/tracking-controller.ts";
-import { SqliteForecastRepository, type ForecastRepository } from "../repositories/forecast-repository.ts";
 
 // Fork registrations so concurrent requests never replace each other's repositories.
-export function createControllers(forecastRepository: ForecastRepository) {
+export function createControllers(accuracyService: AccuracyService) {
     const container = useContainer().fork();
-    container.registerFactory(FORECAST_REPOSITORY, () => forecastRepository, { singleton: false });
+    container.registerFactory(AccuracyService, () => accuracyService, { singleton: false });
     return {
         tracking: container.resolve(TrackingController),
         forecast: container.resolve(ForecastController),
     };
 }
 
-export function createForecastRepository(db: SqlDatabase): SqliteForecastRepository {
+export function createAccuracyService(db: SqlDatabase): AccuracyService {
     const container = useContainer().fork();
     container.registerFactory(SQL_DATABASE, () => db, { singleton: false });
-    return container.resolve(SqliteForecastRepository);
+    return container.resolve(AccuracyService);
 }

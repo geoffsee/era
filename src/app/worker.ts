@@ -1,4 +1,5 @@
-import { createForecastRepository } from "./composition.ts";
+import { ensureForecastSchema } from "../persistence/schema.ts";
+import { createAccuracyService } from "./composition.ts";
 import { type AuthConfig, AuthService, authFailure } from "../services/auth-service.ts";
 import { AuthStore } from "../repositories/auth-store.ts";
 import { handleRequest } from "./http.ts";
@@ -12,8 +13,8 @@ export interface Env extends Partial<AuthConfig> {
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
-        const forecastRepository = createForecastRepository(env.DB);
-        await forecastRepository.ensureSchema();
+        const accuracyService = createAccuracyService(env.DB);
+        await ensureForecastSchema(env.DB);
         let auth: AuthService | undefined;
         if (env.PUBLIC_API_URL) {
             try {
@@ -23,7 +24,7 @@ export default {
             }
         }
         return handleRequest(request, {
-            forecastRepository,
+            accuracyService,
             apiToken: env.API_TOKEN ?? "",
             audience: env.OIDC_AUDIENCE || new URL(request.url).origin,
             auth,

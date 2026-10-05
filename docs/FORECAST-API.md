@@ -59,15 +59,17 @@ Bodies are streamed with a 2 MiB cap, including requests without a Content-Lengt
 
 Errors retain the tracker's `{ "error": "message" }` envelope: 400 for invalid inputs, 401 for missing/invalid authentication, 403 for a foreign repository, 413 for excessive request bytes, 415 for a non-JSON content type, and 503 for forecast storage failures (with database internals withheld). Forecast records produced by estimates use `delivery-cost-v2` / `usd_subtotal`; existing `acem` / `usd` rows remain separate.
 
-Tests exercise authenticated JSON round trips and recording with an in-memory forecast repository. Local qualification additionally uses Wrangler's Workers runtime and a disposable D1 binding; no production deployment is part of these tests.
+Tests exercise authenticated JSON round trips and recording against disposable in-memory SQLite databases. Local qualification additionally uses Wrangler's Workers runtime and a disposable D1 binding; no production deployment is part of these tests.
 ## Configurable roadmap inputs
 
 Estimate and backtest requests may include `roadmapConfig`. `POST /v1/roadmap-validations` validates a roadmap without history or storage writes. See [roadmap formats](ROADMAP-FORMATS.md) for the configuration, normalized model, calibration mappings and limits. Omitting configuration selects the existing format.
 
 ## Service and repository wiring
 
-Tracking routes are instance members of `TrackingController`. Controllers receive services through constructor `@Component` injection; `AccuracyService` and `ForecastService` receive the forecast repository through the same mechanism. Forecast calculation, backtesting and persistence orchestration live in the service. Request composition forks the DI registrations, so a request cannot replace another request's database or forecast repository binding.
+Tracking routes are instance members of `TrackingController`. Controllers receive services through constructor `@Component` injection. `ForecastService` uses `AccuracyService` to record generated results and score observations; `AccuracyService` receives `PredictionRepository` and `ObservationRepository` directly. Request composition forks DI registrations to isolate database bindings.
 
-The forecast repository uses `@di-framework/repo/portable`: `@Repository` registers data access classes, prediction and observation repositories extend ERA’s `SqliteRepository`, which extends the framework’s `EntityRepository`, and the memory forecast repository uses `InMemoryRepository`. `SqliteRepository` owns adapter construction, key encoding, filtered reads, counts and conditional inserts. Its `SqlStorageAdapter` specialization preserves the existing composite primary keys and snake-case columns. Existing D1 tables need no migration. Scoring joins and repository-name aggregation remain explicit SQL queries in the forecast repository.
+Both repositories use `@Repository` and extend `EntityRepository` from `@di-framework/repo/portable`. Their constructors supply the configured SQL adapter. CRUD and pagination are inherited from the framework. Domain-specific queries keep repository filtering, scoring joins and distinct repository names in SQL; services coordinate batches and combine the results. There is no parallel forecast-storage interface, backend-specific forecast repository, or additional repository base class.
 
-The composite adapter supports atomic upserts and conditional inserts, but rejects interactive transaction callbacks and inherited compare-and-swap rather than claiming cross-isolate atomicity. Authentication storage retains its existing single-statement consume and compare-and-swap operations.
+The composite-key `SqlStorageAdapter` specialization preserves existing primary keys and snake-case columns. Existing D1 tables need no migration; schema initialization remains in Worker startup. Tests use the same repositories and services with disposable SQLite databases, rather than duplicating storage behavior in a memory implementation.
+
+The adapter supports atomic upserts and conditional inserts, but rejects interactive transaction callbacks and inherited compare-and-swap rather than claiming cross-isolate atomicity. Authentication storage retains its existing single-statement consume and compare-and-swap operations.

@@ -1,6 +1,7 @@
+import { createAccuracyService } from "../app/composition.ts";
+import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { expect, test } from "bun:test";
 import { handleRequest } from "../app/http.ts";
-import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 import { loadHistoricalData } from "../repositories/historical-data-repository.ts";
 import type { ForecastResponse } from "./forecast-contract.ts";
 
@@ -25,8 +26,8 @@ function request(body: unknown, token = "test-token", path = "/v1/estimates") {
 }
 
 test("Worker calculates a JSON estimate and Markdown report without recording by default", async () => {
-    const forecastRepository = new InMemoryForecastRepository();
-    const response = await handleRequest(request(snapshot), { forecastRepository, apiToken: "test-token" });
+    const accuracyService = createTestAccuracyService();
+    const response = await handleRequest(request(snapshot), { accuracyService, apiToken: "test-token" });
     expect(response.status).toBe(200);
     const result = (await response.json()) as ForecastResponse;
     expect(result.estimate.rawTokens).toBe(1_000_000);
@@ -34,18 +35,18 @@ test("Worker calculates a JSON estimate and Markdown report without recording by
     expect(result.estimate.calibration.labels["1"]).toBeGreaterThan(0);
     expect(result.report).toContain("Priced subtotal");
     expect(result.stored).toBe(0);
-    expect(await forecastRepository.predictions(snapshot.repository)).toEqual([]);
+    expect(await accuracyService.predictions(snapshot.repository)).toEqual([]);
 });
 
 test("Worker records generated versioned predictions only when requested", async () => {
-    const forecastRepository = new InMemoryForecastRepository();
+    const accuracyService = createTestAccuracyService();
     const response = await handleRequest(request({ ...snapshot, record: true }), {
-        forecastRepository,
+        accuracyService,
         apiToken: "test-token",
     });
     expect(response.status).toBe(200);
     expect(((await response.json()) as ForecastResponse).stored).toBe(6);
-    const rows = await forecastRepository.predictions(snapshot.repository);
+    const rows = await accuracyService.predictions(snapshot.repository);
     expect(rows.find((row) => row.metric === "usd_subtotal")).toMatchObject({
         subject: "issue:359",
         model: "delivery-cost-v2",
@@ -69,16 +70,16 @@ test("Worker refuses foreign history, malformed snapshots and invalid calibratio
         { ...snapshot, history: { ...history, pullRequests: [{ ...history.pullRequests[0], totalTokens: -1 }] } },
         { ...snapshot, history: { ...history, pullRequests: [history.pullRequests[0], history.pullRequests[0]] } },
     ]) {
-        const forecastRepository = new InMemoryForecastRepository();
-        const response = await handleRequest(request(body), { forecastRepository, apiToken: "test-token" });
+        const accuracyService = createTestAccuracyService();
+        const response = await handleRequest(request(body), { accuracyService, apiToken: "test-token" });
         expect(response.status).toBe(400);
         expect(typeof ((await response.json()) as { error: string }).error).toBe("string");
-        expect(await forecastRepository.repositories()).toEqual([]);
+        expect(await accuracyService.repositories()).toEqual([]);
     }
 });
 
 test("Worker backtests and optionally records usage rather than requiring client-side calculation", async () => {
-    const forecastRepository = new InMemoryForecastRepository();
+    const accuracyService = createTestAccuracyService();
     const observations = [1, 2, 3].map((scale, index) => ({
         ...history.pullRequests[0]!,
         number: index + 1,
@@ -91,7 +92,7 @@ test("Worker backtests and optionally records usage rather than requiring client
     }));
     const body = { repository: "octo/example", history: { ...history, pullRequests: observations } };
     const preview = await handleRequest(request(body, "test-token", "/v1/backtests"), {
-        forecastRepository,
+        accuracyService,
         apiToken: "test-token",
     });
     expect(preview.status).toBe(200);
@@ -101,9 +102,9 @@ test("Worker backtests and optionally records usage rather than requiring client
     };
     expect(result.predictions.map((row) => row.predicted).sort()).toEqual([1_500_000, 2_000_000, 2_500_000]);
     expect(result.reports[0]?.count).toBe(3);
-    expect(await forecastRepository.repositories()).toEqual([]);
+    expect(await accuracyService.repositories()).toEqual([]);
     const stored = await handleRequest(request({ ...body, record: true }, "test-token", "/v1/backtests"), {
-        forecastRepository,
+        accuracyService,
         apiToken: "test-token",
     });
     expect(stored.status).toBe(200);
@@ -121,7 +122,7 @@ test("calculation preserves valid local-extract quantities across the JSON bound
         plan: await Bun.file(new URL("../../test/fixtures/roadmap-359-central-plan.json", import.meta.url)).json(),
     };
     const response = await handleRequest(request(body), {
-        forecastRepository: new InMemoryForecastRepository(),
+        accuracyService: createTestAccuracyService(),
         apiToken: "test-token",
     });
     expect(response.status).toBe(200);
@@ -132,21 +133,19 @@ test("calculation preserves valid local-extract quantities across the JSON bound
 });
 
 test("estimate endpoint enforces authentication and repository-scoped OIDC", async () => {
-    const forecastRepository = new InMemoryForecastRepository();
-    expect((await handleRequest(request(snapshot, ""), { forecastRepository, apiToken: "test-token" })).status).toBe(
-        401,
-    );
+    const accuracyService = createTestAccuracyService();
+    expect((await handleRequest(request(snapshot, ""), { accuracyService, apiToken: "test-token" })).status).toBe(401);
     const response = await handleRequest(request(snapshot, "a.b.c"), {
-        forecastRepository,
+        accuracyService,
         apiToken: "test-token",
         verifyOidc: async () => ({ repository: "other/repo" }),
     });
     expect(response.status).toBe(403);
-    expect(await forecastRepository.repositories()).toEqual([]);
+    expect(await accuracyService.repositories()).toEqual([]);
 });
 
 test("invalid JSON and oversized bodies receive client errors", async () => {
-    const forecastRepository = new InMemoryForecastRepository();
+    const accuracyService = createTestAccuracyService();
     for (const [body, status] of [
         ["{broken", 400],
         [" ".repeat(2 * 1024 * 1024 + 1), 413],
@@ -157,31 +156,30 @@ test("invalid JSON and oversized bodies receive client errors", async () => {
                 headers: { authorization: "Bearer test-token", "content-type": "application/json" },
                 body,
             }),
-            { forecastRepository, apiToken: "test-token" },
+            { accuracyService, apiToken: "test-token" },
         );
         expect(response.status).toBe(status);
     }
 });
 
 test("recording requires a real issue identity, while saved-snapshot calculation accepts zero", async () => {
-    const forecastRepository = new InMemoryForecastRepository();
+    const accuracyService = createTestAccuracyService();
     const body = { ...snapshot, roadmap: { ...snapshot.roadmap, number: 0 } };
-    expect((await handleRequest(request(body), { forecastRepository, apiToken: "test-token" })).status).toBe(200);
+    expect((await handleRequest(request(body), { accuracyService, apiToken: "test-token" })).status).toBe(200);
     expect(
-        (await handleRequest(request({ ...body, record: true }), { forecastRepository, apiToken: "test-token" }))
-            .status,
+        (await handleRequest(request({ ...body, record: true }), { accuracyService, apiToken: "test-token" })).status,
     ).toBe(400);
-    expect(await forecastRepository.predictions(snapshot.repository)).toEqual([]);
+    expect(await accuracyService.predictions(snapshot.repository)).toEqual([]);
 });
 
 test("storage failures return a server error without exposing database internals", async () => {
-    class UnavailableForecastRepository extends InMemoryForecastRepository {
-        override async savePredictions(): Promise<number> {
+    const accuracyService = createAccuracyService({
+        prepare() {
             throw new Error("SQL constraint must be present: private/path");
-        }
-    }
+        },
+    });
     const response = await handleRequest(request({ ...snapshot, record: true }), {
-        forecastRepository: new UnavailableForecastRepository(),
+        accuracyService,
         apiToken: "test-token",
     });
     expect(response.status).toBe(503);
@@ -195,13 +193,13 @@ test("unsupported content type returns 415", async () => {
             headers: { authorization: "Bearer test-token", "content-type": "text/plain" },
             body: "{}",
         }),
-        { forecastRepository: new InMemoryForecastRepository(), apiToken: "test-token" },
+        { accuracyService: createTestAccuracyService(), apiToken: "test-token" },
     );
     expect(response.status).toBe(415);
 });
 
 test("backtest rejects nonfinite computed predictions before storing", async () => {
-    const forecastRepository = new InMemoryForecastRepository();
+    const accuracyService = createTestAccuracyService();
     const huge = [1, 2, 3].map((number) => ({
         ...history.pullRequests[0]!,
         number,
@@ -218,8 +216,8 @@ test("backtest rejects nonfinite computed predictions before storing", async () 
             "test-token",
             "/v1/backtests",
         ),
-        { forecastRepository, apiToken: "test-token" },
+        { accuracyService, apiToken: "test-token" },
     );
     expect(response.status).toBe(400);
-    expect(await forecastRepository.repositories()).toEqual([]);
+    expect(await accuracyService.repositories()).toEqual([]);
 });

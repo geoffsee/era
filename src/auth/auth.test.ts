@@ -1,3 +1,4 @@
+import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -6,7 +7,6 @@ import { join } from "node:path";
 import { base64UrlEncode, hashSecret, sha256 } from "@di-framework/auth";
 import { runCli } from "../cli/cli.ts";
 import { handleRequest } from "../app/http.ts";
-import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 import { credentialId, FileCredentialCache, MemoryCredentialCache } from "./credentials.ts";
 import { type AuthConfig, AuthService, type LoginFlow } from "../services/auth-service.ts";
@@ -72,11 +72,11 @@ function fixture() {
     } as typeof fetch;
     const store = new AuthStore(new BunSqlDatabase(database), () => clock.now);
     const service = new AuthService(store, config, fetchImpl);
-    const forecastRepository = new InMemoryForecastRepository();
+    const accuracyService = createTestAccuracyService();
     const request = (path: string, init?: RequestInit) =>
         handleRequest(new Request(`https://era.test${path}`, init), {
             auth: service,
-            forecastRepository,
+            accuracyService,
             apiToken: "admin",
         });
     const start = async () => {

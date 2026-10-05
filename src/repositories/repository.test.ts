@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { createForecastRepository } from "../app/composition.ts";
+import { createAccuracyService } from "../app/composition.ts";
 import { CompositeSqlAdapter } from "../persistence/composite-sql-adapter.ts";
-import { PredictionRepository, SCHEMA_SQL } from "./forecast-repository.ts";
-import { SqliteRepository } from "./sqlite-repository.ts";
+import { PredictionRepository } from "./prediction-repository.ts";
+import { SCHEMA_SQL } from "../persistence/schema.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 
 function fixture() {
@@ -54,8 +54,8 @@ test("framework repository preserves pre-existing composite rows, upserts, filte
         expect(await repository.delete(id("first"))).toBe(false);
         expect((await repository.findAll()).length).toBe(2);
         expect(await repository.findById(id("first", "other/app"))).not.toBeNull();
-        const forecastRepository = createForecastRepository(db);
-        expect(await forecastRepository.predictions("acme/app")).toEqual([
+        const accuracyService = createAccuracyService(db);
+        expect(await accuracyService.predictions("acme/app")).toEqual([
             { ...prediction, model: "second", predicted: 20 },
         ]);
         expect(
@@ -100,17 +100,20 @@ test("composite adapter inserts conditionally and refuses non-atomic transaction
     }
 });
 
-test("SqliteRepository supports mapped single-column numeric identities and filtered reads", async () => {
+test("SQLite adapter supports mapped single-column numeric identities and filtered reads", async () => {
     const database = new Database(":memory:");
     try {
         database.run("CREATE TABLE samples (sample_id INTEGER PRIMARY KEY, label TEXT NOT NULL)");
-        const repository = new SqliteRepository<{ id: number; label: string }>(new BunSqlDatabase(database), {
-            table: "samples",
-            keyColumns: ["sample_id"],
-            entityToRow: ({ id, label }) => ({ sample_id: id, label }),
-            rowToEntity: (row) => ({ id: row.sample_id as number, label: row.label as string }),
-        });
-        const key = repository.key(7);
+        const repository = new CompositeSqlAdapter<{ id: number; label: string }>(
+            new BunSqlDatabase(database),
+            {
+                table: "samples",
+                entityToRow: ({ id, label }) => ({ sample_id: id, label }),
+                rowToEntity: (row) => ({ id: row.sample_id as number, label: row.label as string }),
+            },
+            ["sample_id"],
+        );
+        const key = JSON.stringify([7]);
         expect(await repository.saveIfAbsent({ id: 7, label: "first" })).toBe(true);
         expect(await repository.saveIfAbsent({ id: 7, label: "duplicate" })).toBe(false);
         await repository.save({ id: 8, label: "second" });
@@ -120,14 +123,17 @@ test("SqliteRepository supports mapped single-column numeric identities and filt
         expect(await repository.count({ label: "first" })).toBe(1);
         expect(await repository.findWhere({ label: "first" })).toEqual([{ id: 7, label: "first" }]);
         expect(await repository.findWhere({ label: "' OR 1=1 --" })).toEqual([]);
-        expect(() => repository.key()).toThrow("Invalid composite identity");
-        expect(() => repository.key(Number.NaN)).toThrow("Invalid composite identity");
+        await expect(repository.findById("[]")).rejects.toThrow("Invalid composite identity");
+        await expect(repository.findById("[null]")).rejects.toThrow("Invalid composite identity");
         expect(
             () =>
-                new SqliteRepository(new BunSqlDatabase(database), {
-                    table: "samples",
-                    keyColumns: ["sample_id", "sample_id"],
-                }),
+                new CompositeSqlAdapter(
+                    new BunSqlDatabase(database),
+                    {
+                        table: "samples",
+                    },
+                    ["sample_id", "sample_id"],
+                ),
         ).toThrow("Composite keys must be SQL identifiers");
     } finally {
         database.close();
