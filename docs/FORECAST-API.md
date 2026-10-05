@@ -66,7 +66,7 @@ Estimate and backtest requests may include `roadmapConfig`. `POST /v1/roadmap-va
 
 ## Service and repository wiring
 
-Tracking routes are instance members of `TrackingController`. Controllers receive services through constructor `@Component` injection. `ForecastService` uses `AccuracyService` to record generated results and score observations; `AccuracyService` receives `PredictionRepository` and `ObservationRepository` directly. Request composition forks DI registrations to isolate database bindings.
+Tracking routes are instance members of `TrackingController`. Controllers receive services through constructor `@Component` injection. `ForecastService` uses `AccuracyService` to record generated results and score observations; `AccuracyService` receives `PredictionRepository` and `ObservationRepository` directly. Dependencies are constructed and resolved through the runtime container. Controllers are resolved before dispatch.
 
 Both repositories use `@Repository` and extend `EntityRepository` from `@di-framework/repo/portable`. Their constructors supply the configured SQL adapter. CRUD and pagination are inherited from the framework. Domain-specific queries keep repository filtering, scoring joins and distinct repository names in SQL; services coordinate batches and combine the results. There is no parallel forecast-storage interface, backend-specific forecast repository, or additional repository base class.
 

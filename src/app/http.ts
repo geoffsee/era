@@ -36,11 +36,13 @@ export async function handleRequest(request: Request, deps: TrackerDeps): Promis
         }
     }
     try {
-        const container = useContainer().fork();
+        const container = useContainer();
         container.registerFactory(AccuracyService, () => deps.accuracyService, { singleton: false });
-        const forecast = await container.resolve(ForecastController).handle(request, identity);
+        const forecastController = container.resolve(ForecastController);
+        const trackingController = container.resolve(TrackingController);
+        const forecast = await forecastController.handle(request, identity);
         if (forecast) return forecast;
-        const response = await container.resolve(TrackingController).fetch(request, { identity });
+        const response = await trackingController.fetch(request, { identity });
         return response ?? json({ error: "not found" }, { status: 404 });
     } catch (error) {
         return failure(error);

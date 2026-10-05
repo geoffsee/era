@@ -18,7 +18,7 @@ export function createTestAccuracyService(db?: SqlDatabase) {
         for (const sql of SCHEMA_SQL) database.run(sql);
         db = new BunSqlDatabase(database);
     }
-    const container = useContainer().fork();
+    const container = useContainer();
     container.registerFactory(SQL_DATABASE, () => db!, { singleton: false });
-    return container.resolve(AccuracyService);
+    return container.construct(AccuracyService);
 }

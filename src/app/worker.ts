@@ -14,9 +14,9 @@ export interface Env extends Partial<AuthConfig> {
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
-        const container = useContainer().fork();
+        const container = useContainer();
         container.registerFactory(SQL_DATABASE, () => env.DB, { singleton: false });
-        const accuracyService = container.resolve(AccuracyService);
+        const accuracyService = container.construct(AccuracyService);
         await ensureForecastSchema(env.DB);
         let auth: AuthService | undefined;
         if (env.PUBLIC_API_URL) {
