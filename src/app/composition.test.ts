@@ -1,16 +1,17 @@
+import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
 import { expect, test } from "bun:test";
 import { useContainer } from "@di-framework/core/container";
-import { AccuracyService, LEDGER } from "../services/accuracy-service.ts";
+import { AccuracyService } from "../services/accuracy-service.ts";
 import { createControllers } from "./composition.ts";
-import { MemoryLedger } from "../repositories/ledger.ts";
+import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 
 test("injected controllers retain isolated repositories across interleaved requests", async () => {
-    const globalLedger = new MemoryLedger();
-    useContainer().registerFactory(LEDGER, () => globalLedger, { singleton: false });
-    const firstLedger = new MemoryLedger();
-    const secondLedger = new MemoryLedger();
-    const first = createControllers(firstLedger);
-    const second = createControllers(secondLedger);
+    const globalForecastRepository = new InMemoryForecastRepository();
+    useContainer().registerFactory(FORECAST_REPOSITORY, () => globalForecastRepository, { singleton: false });
+    const firstForecastRepository = new InMemoryForecastRepository();
+    const secondForecastRepository = new InMemoryForecastRepository();
+    const first = createControllers(firstForecastRepository);
+    const second = createControllers(secondForecastRepository);
     const record = (controller: typeof first.tracking, subject: string) =>
         controller.fetch(
             new Request("https://era.test/v1/predictions", {
@@ -28,10 +29,10 @@ test("injected controllers retain isolated repositories across interleaved reque
         record(first.tracking, "issue:3"),
     ]);
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
-    expect((await firstLedger.predictions("acme/app")).map((row) => row.subject).sort()).toEqual([
+    expect((await firstForecastRepository.predictions("acme/app")).map((row) => row.subject).sort()).toEqual([
         "issue:1",
         "issue:3",
     ]);
-    expect((await secondLedger.predictions("acme/app")).map((row) => row.subject)).toEqual(["issue:2"]);
+    expect((await secondForecastRepository.predictions("acme/app")).map((row) => row.subject)).toEqual(["issue:2"]);
     expect(await useContainer().resolve(AccuracyService).repositories()).toEqual([]);
 });

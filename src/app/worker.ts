@@ -1,4 +1,4 @@
-import { createLedger } from "./composition.ts";
+import { createForecastRepository } from "./composition.ts";
 import { type AuthConfig, AuthService, authFailure } from "../services/auth-service.ts";
 import { AuthStore } from "../repositories/auth-store.ts";
 import { handleRequest } from "./http.ts";
@@ -12,8 +12,8 @@ export interface Env extends Partial<AuthConfig> {
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
-        const ledger = createLedger(env.DB);
-        await ledger.ensureSchema();
+        const forecastRepository = createForecastRepository(env.DB);
+        await forecastRepository.ensureSchema();
         let auth: AuthService | undefined;
         if (env.PUBLIC_API_URL) {
             try {
@@ -23,7 +23,7 @@ export default {
             }
         }
         return handleRequest(request, {
-            ledger,
+            forecastRepository,
             apiToken: env.API_TOKEN ?? "",
             audience: env.OIDC_AUDIENCE || new URL(request.url).origin,
             auth,

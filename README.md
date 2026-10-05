@@ -193,7 +193,7 @@ The report also compares repository-median and epic-median token baselines chron
 
 ## Track accuracy
 
-Forecast operations use `POST /v1/estimates`: `estimate` calculates without saving ledger rows, while `record-estimate` asks the Worker to calculate and record its generated predictions. The backtest command uses `POST /v1/backtests` to calculate and record on the Worker. Both endpoints accept normalized history plus repository identity; the estimate endpoint also accepts the roadmap snapshot and optional plan. No GitHub token or filesystem path is sent to the Worker. See [the API contract](docs/FORECAST-API.md).
+Forecast operations use `POST /v1/estimates`: `estimate` calculates without saving forecast records, while `record-estimate` asks the Worker to calculate and record its generated predictions. The backtest command uses `POST /v1/backtests` to calculate and record on the Worker. Both endpoints accept normalized history plus repository identity; the estimate endpoint also accepts the roadmap snapshot and optional plan. No GitHub token or filesystem path is sent to the Worker. See [the API contract](docs/FORECAST-API.md).
 
 Rows are keyed by `owner/name`, a subject such as `issue:4` or `pr:12`, a model, and a metric (`tokens`, `story_points`, `usd_subtotal`, or `cicd_seconds`). New delivery-cost predictions use model `delivery-cost-v2` and metric `usd_subtotal`; legacy `acem`/`usd` rows remain separate. The hosted tracker is `https://era-tracker.seemueller.workers.dev`. Set `ERA_API_URL` or `api-url` when the tracker is a different Worker.
 

@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { createLedger } from "../app/composition.ts";
+import { createForecastRepository } from "../app/composition.ts";
 import { CompositeSqlAdapter } from "../persistence/composite-sql-adapter.ts";
-import { PredictionRepository, SCHEMA_SQL } from "./ledger.ts";
+import { PredictionRepository, SCHEMA_SQL } from "./forecast-repository.ts";
 import { SqliteRepository } from "./sqlite-repository.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 
@@ -54,8 +54,10 @@ test("framework repository preserves pre-existing composite rows, upserts, filte
         expect(await repository.delete(id("first"))).toBe(false);
         expect((await repository.findAll()).length).toBe(2);
         expect(await repository.findById(id("first", "other/app"))).not.toBeNull();
-        const ledger = createLedger(db);
-        expect(await ledger.predictions("acme/app")).toEqual([{ ...prediction, model: "second", predicted: 20 }]);
+        const forecastRepository = createForecastRepository(db);
+        expect(await forecastRepository.predictions("acme/app")).toEqual([
+            { ...prediction, model: "second", predicted: 20 },
+        ]);
         expect(
             database
                 .query("PRAGMA table_info(predictions)")

@@ -5,7 +5,9 @@ import type { Observation, Prediction, ScoredPair } from "../tracking/model.ts";
 
 import { SQL_DATABASE, type SqlDatabase } from "../persistence/database.ts";
 
-export interface Ledger {
+export const FORECAST_REPOSITORY = "era.forecast-repository";
+
+export interface ForecastRepository {
     savePredictions(predictions: readonly Prediction[]): Promise<number>;
     saveObservations(observations: readonly Observation[]): Promise<number>;
     pairs(repository: string): Promise<ScoredPair[]>;
@@ -15,7 +17,7 @@ export interface Ledger {
 }
 
 @Repository({ singleton: false })
-export class MemoryLedger implements Ledger {
+export class InMemoryForecastRepository implements ForecastRepository {
     private readonly predictionRows = new InMemoryRepository<{ id: string; value: Prediction }, string>();
     private readonly observationRows = new InMemoryRepository<{ id: string; value: Observation }, string>();
 
@@ -151,7 +153,7 @@ export class ObservationRepository extends SqliteRepository<Observation> {
 }
 
 @Repository({ singleton: false })
-export class D1Ledger implements Ledger {
+export class SqliteForecastRepository implements ForecastRepository {
     constructor(
         @Component(SQL_DATABASE) private readonly db: SqlDatabase,
         @Component(PredictionRepository) private readonly predictionRows: PredictionRepository,

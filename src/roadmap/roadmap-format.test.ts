@@ -7,7 +7,7 @@ import { calculateForecast, parseForecastRequest } from "../services/forecast-se
 import { loadHistoricalData } from "../repositories/historical-data-repository.ts";
 import { parseRoadmapConfig, type RoadmapConfig, resolveRoadmap, roadmapHistory } from "./roadmap-format.ts";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../repositories/ledger.ts";
+import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 
 const config: RoadmapConfig = {
     format: "markdown-table",
@@ -114,20 +114,21 @@ test("normalized roadmaps reject unknown dependencies, parent cycles, execution 
 });
 
 test("validation endpoint authenticates, enforces repository scope, needs no history and writes nothing", async () => {
-    const ledger = new MemoryLedger();
+    const forecastRepository = new InMemoryForecastRepository();
     const input = { repository: "octo/example", roadmap: { body }, roadmapConfig: config };
     expect(
-        (await handleRequest(api(input, "/v1/roadmap-validations", "bad"), { ledger, apiToken: "test" })).status,
+        (await handleRequest(api(input, "/v1/roadmap-validations", "bad"), { forecastRepository, apiToken: "test" }))
+            .status,
     ).toBe(401);
-    const result = await handleRequest(api(input), { ledger, apiToken: "test" });
+    const result = await handleRequest(api(input), { forecastRepository, apiToken: "test" });
     expect(result.status).toBe(200);
     expect(await result.json()).toMatchObject({
         format: "markdown-table",
         executionDependencies: [{ before: 2, after: 3 }],
     });
-    expect(await ledger.predictions("octo/example")).toEqual([]);
+    expect(await forecastRepository.predictions("octo/example")).toEqual([]);
     const denied = await handleRequest(api(input, "/v1/roadmap-validations", "workflow.jwt.token"), {
-        ledger,
+        forecastRepository,
         apiToken: "test",
         verifyOidc: async () => ({ kind: "github", repository: "other/repo" }),
     });
@@ -183,7 +184,7 @@ test("CLI sends format configuration and roadmap source to Worker validation wit
         writeFileSync(join(directory, "era.config.json"), JSON.stringify({ version: 1, roadmap: config }));
         writeFileSync(join(directory, "roadmap.md"), body);
         const output: string[] = [];
-        const ledger = new MemoryLedger();
+        const forecastRepository = new InMemoryForecastRepository();
         const code = await runCli(
             [
                 "roadmap",
@@ -200,7 +201,7 @@ test("CLI sends format configuration and roadmap source to Worker validation wit
                 fetch: async (input, init) => {
                     expect(String(input)).toBe("https://worker.test/v1/roadmap-validations");
                     expect(JSON.parse(String(init?.body))).not.toHaveProperty("history");
-                    return handleRequest(new Request(String(input), init), { ledger, apiToken: "test" });
+                    return handleRequest(new Request(String(input), init), { forecastRepository, apiToken: "test" });
                 },
                 stdout: (line) => output.push(line),
                 stderr: (line) => {

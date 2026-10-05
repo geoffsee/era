@@ -1,21 +1,22 @@
-import { createLedger } from "../app/composition.ts";
+import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
+import { createForecastRepository } from "../app/composition.ts";
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { useContainer } from "@di-framework/core/container";
 import { runCli } from "../cli/cli.ts";
-import { AccuracyService, LEDGER } from "../services/accuracy-service.ts";
+import { AccuracyService } from "../services/accuracy-service.ts";
 import { tokenBacktest } from "./backtest.ts";
 import { handleRequest } from "../app/http.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
-import { MemoryLedger } from "../repositories/ledger.ts";
+import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 import type { HistoricalPullRequest } from "../repositories/historical-data-repository.ts";
 
 const TOKEN = "test-token";
 
 describe("accuracy service", () => {
-    test("resolves the ledger from the di-framework container and scores paired rows", async () => {
-        const ledger = new MemoryLedger();
-        useContainer().registerFactory(LEDGER, () => ledger, { singleton: false });
+    test("resolves the forecast repository from the di-framework container and scores paired rows", async () => {
+        const forecastRepository = new InMemoryForecastRepository();
+        useContainer().registerFactory(FORECAST_REPOSITORY, () => forecastRepository, { singleton: false });
         const service = useContainer().resolve(AccuracyService);
         await service.recordPredictions([
             { repository: "acme/app", subject: "issue:1", model: "token-threshold", metric: "tokens", predicted: 100 },
@@ -34,8 +35,8 @@ describe("accuracy service", () => {
     });
 
     test("keeps repositories separate", async () => {
-        const ledger = new MemoryLedger();
-        await ledger.savePredictions([
+        const forecastRepository = new InMemoryForecastRepository();
+        await forecastRepository.savePredictions([
             {
                 repository: "other/repo",
                 subject: "issue:1",
@@ -45,7 +46,7 @@ describe("accuracy service", () => {
                 recordedAt: "2026-10-02T00:00:00.000Z",
             },
         ]);
-        await ledger.saveObservations([
+        await forecastRepository.saveObservations([
             {
                 repository: "acme/app",
                 subject: "issue:1",
@@ -55,16 +56,16 @@ describe("accuracy service", () => {
                 source: "manual",
             },
         ]);
-        expect(await ledger.pairs("acme/app")).toEqual([]);
-        expect(await ledger.repositories()).toEqual(["acme/app", "other/repo"]);
+        expect(await forecastRepository.pairs("acme/app")).toEqual([]);
+        expect(await forecastRepository.repositories()).toEqual(["acme/app", "other/repo"]);
     });
 });
 
-describe("sqlite ledger", () => {
+describe("sqlite forecast repository", () => {
     test("upserts predictions and joins them to observations", async () => {
-        const ledger = createLedger(new BunSqlDatabase(new Database(":memory:")));
-        await ledger.ensureSchema();
-        await ledger.savePredictions([
+        const forecastRepository = createForecastRepository(new BunSqlDatabase(new Database(":memory:")));
+        await forecastRepository.ensureSchema();
+        await forecastRepository.savePredictions([
             {
                 repository: "acme/app",
                 subject: "pr:9",
@@ -74,7 +75,7 @@ describe("sqlite ledger", () => {
                 recordedAt: "2026-10-02T00:00:00.000Z",
             },
         ]);
-        await ledger.savePredictions([
+        await forecastRepository.savePredictions([
             {
                 repository: "acme/app",
                 subject: "pr:9",
@@ -84,7 +85,7 @@ describe("sqlite ledger", () => {
                 recordedAt: "2026-10-02T01:00:00.000Z",
             },
         ]);
-        await ledger.saveObservations([
+        await forecastRepository.saveObservations([
             {
                 repository: "acme/app",
                 subject: "pr:9",
@@ -94,17 +95,17 @@ describe("sqlite ledger", () => {
                 source: "historical-pr",
             },
         ]);
-        expect(await ledger.predictions("acme/app")).toHaveLength(1);
-        expect((await ledger.pairs("acme/app"))[0]?.predicted).toBe(12);
-        expect((await ledger.pairs("acme/app"))[0]?.actual).toBe(18);
+        expect(await forecastRepository.predictions("acme/app")).toHaveLength(1);
+        expect((await forecastRepository.pairs("acme/app"))[0]?.predicted).toBe(12);
+        expect((await forecastRepository.pairs("acme/app"))[0]?.actual).toBe(18);
     });
 });
 
 describe("tracker api", () => {
     test("rejects missing tokens and stores a batch", async () => {
-        const ledger = new MemoryLedger();
+        const forecastRepository = new InMemoryForecastRepository();
         const denied = await handleRequest(request("POST", "/v1/predictions", { predictions: [] }), {
-            ledger,
+            forecastRepository,
             apiToken: TOKEN,
         });
         expect(denied.status).toBe(401);
@@ -121,29 +122,29 @@ describe("tracker api", () => {
                     },
                 ],
             }),
-            { ledger, apiToken: TOKEN },
+            { forecastRepository, apiToken: TOKEN },
         );
         expect(stored.status).toBe(200);
         expect(await stored.json()).toEqual({ stored: 1 });
 
-        const health = await handleRequest(request("GET", "/health"), { ledger, apiToken: TOKEN });
+        const health = await handleRequest(request("GET", "/health"), { forecastRepository, apiToken: TOKEN });
         expect(health.status).toBe(200);
     });
 
-    test("does not leak one request ledger into the next", async () => {
-        const first = new MemoryLedger();
-        const second = new MemoryLedger();
+    test("does not leak one request forecast repository into the next", async () => {
+        const first = new InMemoryForecastRepository();
+        const second = new InMemoryForecastRepository();
         await handleRequest(
             authed("POST", "/v1/observations", {
                 observations: [{ repository: "acme/app", subject: "issue:1", metric: "tokens", actual: 3 }],
             }),
-            { ledger: first, apiToken: TOKEN },
+            { forecastRepository: first, apiToken: TOKEN },
         );
         await handleRequest(
             authed("POST", "/v1/observations", {
                 observations: [{ repository: "other/app", subject: "issue:1", metric: "tokens", actual: 9 }],
             }),
-            { ledger: second, apiToken: TOKEN },
+            { forecastRepository: second, apiToken: TOKEN },
         );
         expect(await first.repositories()).toEqual(["acme/app"]);
         expect(await second.repositories()).toEqual(["other/app"]);
@@ -152,7 +153,7 @@ describe("tracker api", () => {
 
 describe("cli", () => {
     test("records a prediction, an observation, and prints accuracy", async () => {
-        const ledger = new MemoryLedger();
+        const forecastRepository = new InMemoryForecastRepository();
         const lines: string[] = [];
         const io = {
             fetch: (input: string | URL | Request, init?: RequestInit) =>
@@ -161,7 +162,7 @@ describe("cli", () => {
                         ? input
                         : new Request(input instanceof URL ? input.toString() : input, init),
                     {
-                        ledger,
+                        forecastRepository,
                         apiToken: TOKEN,
                     },
                 ),
@@ -227,10 +228,10 @@ describe("cli", () => {
         }));
         const batch = tokenBacktest("acme/app", history, "2026-10-02T00:00:00.000Z");
         expect(batch.predictions.map((row) => row.predicted).sort((a, b) => a - b)).toEqual([15, 20, 25]);
-        const ledger = new MemoryLedger();
-        await ledger.savePredictions(batch.predictions);
-        await ledger.saveObservations(batch.observations);
-        useContainer().registerFactory(LEDGER, () => ledger, { singleton: false });
+        const forecastRepository = new InMemoryForecastRepository();
+        await forecastRepository.savePredictions(batch.predictions);
+        await forecastRepository.saveObservations(batch.observations);
+        useContainer().registerFactory(FORECAST_REPOSITORY, () => forecastRepository, { singleton: false });
         const [report] = await useContainer().resolve(AccuracyService).accuracy("acme/app");
         expect(report?.model).toBe("token-median");
         expect(report?.count).toBe(3);

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { runCli } from "./cli.ts";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../repositories/ledger.ts";
+import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 
 const root = join(import.meta.dir, "../..");
 const args = [
@@ -22,14 +22,14 @@ const args = [
 
 test("snapshot CLI posts inputs to the Worker and prints its report without recording", async () => {
     const output: string[] = [];
-    const ledger = new MemoryLedger();
+    const forecastRepository = new InMemoryForecastRepository();
     const urls: string[] = [];
     const code = await runCli(["estimate", ...args], {
         env: { ERA_API_URL: "https://worker.test", ERA_API_TOKEN: "test" },
         fetch: async (url, init) => {
             urls.push(String(url));
             return handleRequest(url instanceof Request ? url : new Request(String(url), init), {
-                ledger,
+                forecastRepository,
                 apiToken: "test",
             });
         },
@@ -42,22 +42,22 @@ test("snapshot CLI posts inputs to the Worker and prints its report without reco
     expect(output.join("\n")).toContain("108.0h");
     expect(output.join("\n")).toContain("octo/example#359");
     expect(urls).toEqual(["https://worker.test/v1/estimates"]);
-    expect(await ledger.predictions("octo/example")).toEqual([]);
+    expect(await forecastRepository.predictions("octo/example")).toEqual([]);
 });
 
 test("record-estimate versions the priced subtotal without mixing legacy dollar observations", async () => {
     const rows: Array<{ model: string; metric: string; subject: string }> = [];
-    const ledger = new MemoryLedger();
+    const forecastRepository = new InMemoryForecastRepository();
     const code = await runCli(["record-estimate", ...args], {
         env: { ERA_API_URL: "https://tracker.test", ERA_API_TOKEN: "test" },
         fetch: async (url, init) => {
             expect(String(url)).toBe("https://tracker.test/v1/estimates");
             expect(JSON.parse(init?.body as string).record).toBe(true);
             const response = await handleRequest(url instanceof Request ? url : new Request(String(url), init), {
-                ledger,
+                forecastRepository,
                 apiToken: "test",
             });
-            rows.push(...(await ledger.predictions("octo/example")));
+            rows.push(...(await forecastRepository.predictions("octo/example")));
             return response;
         },
         stdout: () => {},

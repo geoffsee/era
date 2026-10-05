@@ -150,7 +150,7 @@ Chronological retrospective token validation compares repository and epic median
 
 An observation uses the same `issue:` or `pr:` subject as the prediction it should score.
 
-`estimate` calls `POST /v1/estimates` without recording ledger rows; saved snapshots can omit `--issue`. It requires Worker credentials even when GitHub access is unnecessary. `record-estimate` calls the same endpoint with `record: true` and requires a positive real roadmap issue number before writing to the tracker. Recording new dollar rows does not migrate or overwrite legacy dollar predictions.
+`estimate` calls `POST /v1/estimates` without recording forecast records; saved snapshots can omit `--issue`. It requires Worker credentials even when GitHub access is unnecessary. `record-estimate` calls the same endpoint with `record: true` and requires a positive real roadmap issue number before writing to the tracker. Recording new dollar rows does not migrate or overwrite legacy dollar predictions.
 
 The Worker accepts at most 2 MiB of UTF-8 request data, 1000 historical PRs, 1000 issue-title/state entries, and 1000 distinct roadmap member issues. Inclusive issue ranges contain at most 1000 safe positive integer IDs. Invalid snapshot/history/plan data returns 400, excessive body size 413, unsupported content type 415, and authentication/access failures 401/403. Calibration helpers and history types are runtime-independent; file loading stays in the CLI adapter.
 

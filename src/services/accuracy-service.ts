@@ -1,5 +1,6 @@
+import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
 import { Component, Container } from "@di-framework/core/decorators";
-import type { Ledger } from "../repositories/ledger.ts";
+import type { ForecastRepository } from "../repositories/forecast-repository.ts";
 import {
     assertFinite,
     assertRepository,
@@ -11,35 +12,33 @@ import {
 } from "../tracking/model.ts";
 import { scoreRepository } from "../tracking/score.ts";
 
-export const LEDGER = "ledger";
-
 @Container({ singleton: false })
 export class AccuracyService {
-    constructor(@Component(LEDGER) private readonly ledger: Ledger) {}
+    constructor(@Component(FORECAST_REPOSITORY) private readonly forecastRepository: ForecastRepository) {}
 
     async recordPredictions(inputs: readonly unknown[], now = new Date().toISOString()): Promise<number> {
-        return this.ledger.savePredictions(inputs.map((input) => parsePrediction(input, now)));
+        return this.forecastRepository.savePredictions(inputs.map((input) => parsePrediction(input, now)));
     }
 
     async recordObservations(inputs: readonly unknown[], now = new Date().toISOString()): Promise<number> {
-        return this.ledger.saveObservations(inputs.map((input) => parseObservation(input, now)));
+        return this.forecastRepository.saveObservations(inputs.map((input) => parseObservation(input, now)));
     }
 
     async accuracy(repository: string): Promise<AccuracyReport[]> {
         const name = assertRepository(repository);
-        return scoreRepository(name, await this.ledger.pairs(name));
+        return scoreRepository(name, await this.forecastRepository.pairs(name));
     }
 
     async predictions(repository: string): Promise<Prediction[]> {
-        return this.ledger.predictions(assertRepository(repository));
+        return this.forecastRepository.predictions(assertRepository(repository));
     }
 
     async observations(repository: string): Promise<Observation[]> {
-        return this.ledger.observations(assertRepository(repository));
+        return this.forecastRepository.observations(assertRepository(repository));
     }
 
     async repositories(): Promise<string[]> {
-        return this.ledger.repositories();
+        return this.forecastRepository.repositories();
     }
 }
 

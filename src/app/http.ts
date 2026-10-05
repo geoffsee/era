@@ -5,10 +5,10 @@ import { authFailure } from "../services/auth-service.ts";
 import { ForecastInputError } from "../services/forecast-service.ts";
 import { authenticate, HttpError, type Identity } from "../auth/access.ts";
 import { createControllers } from "./composition.ts";
-import type { Ledger } from "../repositories/ledger.ts";
+import type { ForecastRepository } from "../repositories/forecast-repository.ts";
 
 export type TrackerDeps = {
-    ledger: Ledger;
+    forecastRepository: ForecastRepository;
     apiToken: string;
     audience?: string;
     identity?: Identity;
@@ -34,7 +34,7 @@ export async function handleRequest(request: Request, deps: TrackerDeps): Promis
         }
     }
     try {
-        const controllers = createControllers(deps.ledger);
+        const controllers = createControllers(deps.forecastRepository);
         const forecast = await controllers.forecast.handle(request, identity);
         if (forecast) return forecast;
         const response = await controllers.tracking.fetch(request, { identity });

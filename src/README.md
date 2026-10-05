@@ -3,7 +3,7 @@
 | Directory | Purpose |
 | --- | --- |
 | `app/` | Worker entry point, HTTP dispatch, and dependency composition |
-| `repositories/` | Ledger repositories, authentication storage, historical and GitHub data access, and the SQLite repository base |
+| `repositories/` | Forecast repositories, authentication storage, historical and GitHub data access, and the SQLite repository base |
 | `services/` | Authentication, forecasting, and accuracy application services |
 | `controllers/` | Authentication, forecast, and tracking HTTP handlers |
 | `auth/` | GitHub login, credentials, scoped access, and OIDC |

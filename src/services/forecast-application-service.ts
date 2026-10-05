@@ -1,5 +1,5 @@
+import { FORECAST_REPOSITORY } from "../repositories/forecast-repository.ts";
 import { Component, Container } from "@di-framework/core/decorators";
-import { LEDGER } from "./accuracy-service.ts";
 import {
     assertFiniteResult,
     calculateForecast,
@@ -14,12 +14,12 @@ import {
 import { parseRoadmapConfig, roadmapHistory } from "../roadmap/roadmap-format.ts";
 import { assertAccess, HttpError, type Identity } from "../auth/access.ts";
 import { tokenBacktest } from "../tracking/backtest.ts";
-import type { Ledger } from "../repositories/ledger.ts";
+import type { ForecastRepository } from "../repositories/forecast-repository.ts";
 import { scoreRepository } from "../tracking/score.ts";
 
 @Container({ singleton: false })
 export class ForecastService {
-    constructor(@Component(LEDGER) private readonly ledger: Ledger) {}
+    constructor(@Component(FORECAST_REPOSITORY) private readonly forecastRepository: ForecastRepository) {}
 
     validate(value: unknown, identity: Identity | undefined) {
         return validateRoadmapRequest(authorizedContent(value, identity));
@@ -28,7 +28,9 @@ export class ForecastService {
     async estimate(value: unknown, identity: Identity | undefined) {
         const input = parseForecastRequest(authorizedContent(value, identity));
         const result = calculateForecast(input, new Date().toISOString());
-        const stored = input.record ? await storage(() => this.ledger.savePredictions(result.predictions)) : 0;
+        const stored = input.record
+            ? await storage(() => this.forecastRepository.savePredictions(result.predictions))
+            : 0;
         return { ...result, stored };
     }
 
@@ -54,12 +56,12 @@ export class ForecastService {
         assertFiniteResult({ ...batch, reports: previewReports });
         const stored = record
             ? {
-                  predictions: await storage(() => this.ledger.savePredictions(batch.predictions)),
-                  observations: await storage(() => this.ledger.saveObservations(batch.observations)),
+                  predictions: await storage(() => this.forecastRepository.savePredictions(batch.predictions)),
+                  observations: await storage(() => this.forecastRepository.saveObservations(batch.observations)),
               }
             : { predictions: 0, observations: 0 };
         const reports = record
-            ? scoreRepository(repository, await storage(() => this.ledger.pairs(repository)))
+            ? scoreRepository(repository, await storage(() => this.forecastRepository.pairs(repository)))
             : previewReports;
         return { repository, ...batch, reports, stored };
     }

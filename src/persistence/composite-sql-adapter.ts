@@ -110,7 +110,7 @@ export class CompositeSqlAdapter<E extends Row> extends SqlStorageAdapter<E, str
     // D1 cannot provide an interactive transaction around an arbitrary async callback.
     // Never imply that read/modify/write callbacks (including inherited CAS) are atomic.
     transaction<T>(_fn: (adapter: this) => Promise<T>): Promise<T> {
-        return Promise.reject(new Error("Interactive transactions are not supported by the ledger adapter"));
+        return Promise.reject(new Error("Interactive transactions are not supported by the SQLite adapter"));
     }
 }
 

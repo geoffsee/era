@@ -28,7 +28,7 @@ A successful request returns 200 with a [`ForecastResponse`](../src/forecast/for
 - `predictions`: generated tracking rows, or an empty array for an unidentified snapshot (`number: 0`).
 - `stored`: the count saved when `record` is true, otherwise zero.
 
-Calculation-only requests do not persist input snapshots, usage history or ledger rows. Recording upserts predictions with the existing ledger semantics; it does not persist full input evidence. Future acceptance evidence and billing receipts are still needed for prospective validation. No client-generated prediction or calibration field is used to calculate the response.
+Calculation-only requests do not persist input snapshots, usage history or forecast records. Recording upserts predictions with the existing upsert semantics; it does not persist full input evidence. Future acceptance evidence and billing receipts are still needed for prospective validation. No client-generated prediction or calibration field is used to calculate the response.
 
 The CLI sends the same request for both commands, adding `record: true` for the second:
 
@@ -51,23 +51,23 @@ Set the local Worker's `API_TOKEN` to the matching token first. The fixture hist
 
 The request contains `repository`, normalized `history` and optional `record` (default false). At least two merged PRs with positive author usage are required. It runs the existing leave-one-out token-median backtest on the Worker; the forecast's separate chronological validation retains its own semantics.
 
-The 200 response contains `repository`, generated `predictions` and `observations`, accuracy `reports`, and `stored: { predictions, observations }`. A preview scores only the supplied batch without writing. When recording, the Worker writes predictions and observations and returns accuracy for the repository's stored pairs, matching the existing tracker workflow. Those two ledger writes retain existing non-transactional behavior. `era backtest` requests recording and prints the server's reports.
+The 200 response contains `repository`, generated `predictions` and `observations`, accuracy `reports`, and `stored: { predictions, observations }`. A preview scores only the supplied batch without writing. When recording, the Worker writes predictions and observations and returns accuracy for the repository's stored pairs, matching the existing tracker workflow. Those two forecast repository writes retain existing non-transactional behavior. `era backtest` requests recording and prints the server's reports.
 
 ## Bounds and errors
 
 Bodies are streamed with a 2 MiB cap, including requests without a Content-Length header. History arrays and issue title/state objects are limited to 1000 entries; roadmap membership and inclusive ranges are also bounded to 1000 issues. Invalid JSON, inconsistent tokens, duplicate PR IDs, malformed roadmap/plan data and nonfinite calculated results produce client errors before storing predictions.
 
-Errors retain the tracker's `{ "error": "message" }` envelope: 400 for invalid inputs, 401 for missing/invalid authentication, 403 for a foreign repository, 413 for excessive request bytes, 415 for a non-JSON content type, and 503 for ledger storage failures (with database internals withheld). Ledger rows produced by estimates use `delivery-cost-v2` / `usd_subtotal`; existing `acem` / `usd` rows remain separate.
+Errors retain the tracker's `{ "error": "message" }` envelope: 400 for invalid inputs, 401 for missing/invalid authentication, 403 for a foreign repository, 413 for excessive request bytes, 415 for a non-JSON content type, and 503 for forecast storage failures (with database internals withheld). Forecast records produced by estimates use `delivery-cost-v2` / `usd_subtotal`; existing `acem` / `usd` rows remain separate.
 
-Tests exercise authenticated JSON round trips and recording with an in-memory ledger. Local qualification additionally uses Wrangler's Workers runtime and a disposable D1 binding; no production deployment is part of these tests.
+Tests exercise authenticated JSON round trips and recording with an in-memory forecast repository. Local qualification additionally uses Wrangler's Workers runtime and a disposable D1 binding; no production deployment is part of these tests.
 ## Configurable roadmap inputs
 
 Estimate and backtest requests may include `roadmapConfig`. `POST /v1/roadmap-validations` validates a roadmap without history or storage writes. See [roadmap formats](ROADMAP-FORMATS.md) for the configuration, normalized model, calibration mappings and limits. Omitting configuration selects the existing format.
 
 ## Service and repository wiring
 
-Tracking routes are instance members of `TrackingController`. Controllers receive services through constructor `@Component` injection; `AccuracyService` and `ForecastService` receive the ledger through the same mechanism. Forecast calculation, backtesting and persistence orchestration live in the service. Request composition forks the DI registrations, so a request cannot replace another request's database or ledger binding.
+Tracking routes are instance members of `TrackingController`. Controllers receive services through constructor `@Component` injection; `AccuracyService` and `ForecastService` receive the forecast repository through the same mechanism. Forecast calculation, backtesting and persistence orchestration live in the service. Request composition forks the DI registrations, so a request cannot replace another request's database or forecast repository binding.
 
-The ledger uses `@di-framework/repo/portable`: `@Repository` registers data access classes, prediction and observation repositories extend ERA’s `SqliteRepository`, which extends the framework’s `EntityRepository`, and the memory ledger uses `InMemoryRepository`. `SqliteRepository` owns adapter construction, key encoding, filtered reads, counts and conditional inserts. Its `SqlStorageAdapter` specialization preserves the existing composite primary keys and snake-case columns. Existing D1 tables need no migration. Scoring joins and repository-name aggregation remain explicit SQL queries in the ledger repository.
+The forecast repository uses `@di-framework/repo/portable`: `@Repository` registers data access classes, prediction and observation repositories extend ERA’s `SqliteRepository`, which extends the framework’s `EntityRepository`, and the memory forecast repository uses `InMemoryRepository`. `SqliteRepository` owns adapter construction, key encoding, filtered reads, counts and conditional inserts. Its `SqlStorageAdapter` specialization preserves the existing composite primary keys and snake-case columns. Existing D1 tables need no migration. Scoring joins and repository-name aggregation remain explicit SQL queries in the forecast repository.
 
 The composite adapter supports atomic upserts and conditional inserts, but rejects interactive transaction callbacks and inherited compare-and-swap rather than claiming cross-isolate atomicity. Authentication storage retains its existing single-statement consume and compare-and-swap operations.

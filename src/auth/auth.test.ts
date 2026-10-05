@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { base64UrlEncode, hashSecret, sha256 } from "@di-framework/auth";
 import { runCli } from "../cli/cli.ts";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../repositories/ledger.ts";
+import { InMemoryForecastRepository } from "../repositories/forecast-repository.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 import { credentialId, FileCredentialCache, MemoryCredentialCache } from "./credentials.ts";
 import { type AuthConfig, AuthService, type LoginFlow } from "../services/auth-service.ts";
@@ -72,9 +72,13 @@ function fixture() {
     } as typeof fetch;
     const store = new AuthStore(new BunSqlDatabase(database), () => clock.now);
     const service = new AuthService(store, config, fetchImpl);
-    const ledger = new MemoryLedger();
+    const forecastRepository = new InMemoryForecastRepository();
     const request = (path: string, init?: RequestInit) =>
-        handleRequest(new Request(`https://era.test${path}`, init), { auth: service, ledger, apiToken: "admin" });
+        handleRequest(new Request(`https://era.test${path}`, init), {
+            auth: service,
+            forecastRepository,
+            apiToken: "admin",
+        });
     const start = async () => {
         const response = await request("/auth/cli/start", {
             method: "POST",
