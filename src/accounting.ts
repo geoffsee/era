@@ -1,4 +1,4 @@
-import type { HistoricalAuthorOverhead } from "./historical-data-repository.ts";
+import type { HistoricalAuthorOverhead } from "./history.ts";
 
 /** Disjoint billable categories. Output already contains reasoning/thinking. */
 export type TokenQuantities = {

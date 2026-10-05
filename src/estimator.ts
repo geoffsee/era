@@ -5,7 +5,7 @@ import {
     type HistoricalAuthorOverhead,
     isCalibrationSample,
     type ReviewPool,
-} from "./historical-data-repository.ts";
+} from "./history.ts";
 import {
     type CostGap,
     type InfrastructureBilling,

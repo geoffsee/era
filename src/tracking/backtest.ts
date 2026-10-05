@@ -1,4 +1,4 @@
-import { isCalibrationSample, type HistoricalPullRequest } from "../historical-data-repository.ts";
+import { isCalibrationSample, type HistoricalPullRequest } from "../history.ts";
 import type { Observation, Prediction } from "./model.ts";
 import { median } from "../theory.ts";
 

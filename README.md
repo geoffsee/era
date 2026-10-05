@@ -130,7 +130,7 @@ Live roadmap lookup uses `GITHUB_PAT` or `GH_TOKEN`.
 
 ## Print an estimate
 
-`bun start owner/name` reads that repository and prints a markdown table. `GITHUB_PAT` or `GH_TOKEN` needs access to the repository's issues.
+`bun start owner/name` collects a roadmap snapshot and historical usage, sends them to the Worker, and prints its Markdown report. `GITHUB_PAT` or `GH_TOKEN` needs access to the repository's issues; `ERA_API_URL` and `ERA_API_TOKEN` select and authenticate the Worker. The CLI loads inputs; calculation, calibration, report generation, backtesting and prediction generation run on the Worker.
 
 The command looks for one open issue whose title contains "roadmap", or accepts an explicit issue number (`bun start owner/name 359 forecast-plan.json`). It reads the lane table, gate table, and issue titles specified in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md). Put that repository's extracts in `historical-data/` first; their repository identity must match the target. Both `C` and `G` gate IDs are supported. Milestone references are preserved, with diagnostics for their approximation in the issue-level graph.
 
@@ -142,12 +142,14 @@ The table has three models from `docs/THEORY.md`. The sources are under [Bibliog
 
 ```bash
 export GITHUB_PAT=github_pat_...
+export ERA_API_URL=https://era-tracker.seemueller.workers.dev
+export ERA_API_TOKEN=...
 bun start owner/name
 ```
 
 `bun test` checks the formulas, the tracker, and the GitHub Action.
 
-The read-only CLI needs no tracker credentials and can use an offline snapshot:
+The read-only estimate command can use a saved snapshot without GitHub access. It still calls the authenticated Worker and requires API configuration:
 
 ```bash
 bun src/cli.ts estimate --repository geoffsee/rubix-kube --issue 359 \
@@ -162,6 +164,8 @@ Prices apply the observed fresh/cache-read/output mix under a dated future model
 The report also compares repository-median and epic-median token baselines chronologically: training includes only PRs merged before the target PR's creation, with at least three training samples and at least three epic peers before using an epic median. Missing dates and warmup exclusions are counted. This is retrospective evaluation of final extracts; it does not validate named comparable-PR plans, actual dollars, or immutable prospective predictions. The reconstructed story-point scores are labeled separately. Freeze prospective forecasts before work and collect actual billing and human-effort receipts to validate delivery cost.
 
 ## Track accuracy
+
+Forecast operations use `POST /v1/estimates`: `estimate` calculates without saving ledger rows, while `record-estimate` asks the Worker to calculate and record its generated predictions. The backtest command uses `POST /v1/backtests` to calculate and record on the Worker. Both endpoints accept normalized history plus repository identity; the estimate endpoint also accepts the roadmap snapshot and optional plan. No GitHub token or filesystem path is sent to the Worker. See [the API contract](docs/FORECAST-API.md).
 
 Rows are keyed by `owner/name`, a subject such as `issue:4` or `pr:12`, a model, and a metric (`tokens`, `story_points`, `usd_subtotal`, or `cicd_seconds`). New delivery-cost predictions use model `delivery-cost-v2` and metric `usd_subtotal`; legacy `acem`/`usd` rows remain separate. The hosted tracker is `https://era-tracker.seemueller.workers.dev`. Set `ERA_API_URL` or `api-url` when the tracker is a different Worker.
 
@@ -235,6 +239,8 @@ Outputs are `stored`, `report` (markdown), and `scales` (JSON). The same markdow
 ```bash
 bun run api
 ```
+
+For local forecast testing, set `ERA_API_URL=http://localhost:8787` and `ERA_API_TOKEN` to the local `API_TOKEN`, then run the same CLI commands. The Worker uses its configured D1 binding for recorded predictions and observations; calculation-only requests do not store the supplied snapshot or history. Estimation requires the Worker version with `/v1/estimates`, so deploy that version before using the new CLI against an existing hosted tracker.
 
 `bun run deploy` publishes the Worker in `wrangler.jsonc`. Put `API_TOKEN=...` in `.dev.vars` and set the same value with `wrangler secret put API_TOKEN`. That secret is the CLI admin token. Workflows use OIDC and do not need it. Point `ERA_API_URL` and the action's `api-url` at the deployed URL. The OIDC audience is that URL's origin.
 

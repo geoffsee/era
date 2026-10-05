@@ -58,6 +58,8 @@ export function parseRoadmap(body: string): { lanes: Lane[]; gates: Gate[] } {
     }
     if (lanes.length === 0) throw new Error("roadmap issue body has no lane table");
     if (gates.length === 0) throw new Error("roadmap issue body has no gate table");
+    if (new Set(lanes.flatMap((lane) => lane.issues)).size > 1000)
+        throw new Error("roadmap membership is limited to 1000 issues");
     if (new Set(lanes.map((lane) => lane.id)).size !== lanes.length) throw new Error("roadmap has duplicate lane IDs");
     if (new Set(gates.map((gate) => gate.id)).size !== gates.length) throw new Error("roadmap has duplicate gate IDs");
     return { lanes, gates };
@@ -218,6 +220,8 @@ function issueNumbers(text: string): number[] {
             const end = Number(endText);
             const low = Math.min(start, end);
             const high = Math.max(start, end);
+            if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low <= 0 || high - low >= 1000)
+                throw new Error("roadmap issue ranges require 1–1000 positive safe integer IDs");
             for (let number = low; number <= high; number++) found.push(number);
             return " ";
         },

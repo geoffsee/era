@@ -1,11 +1,8 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
-import { estimateRoadmap, type RoadmapEstimate } from "./estimator.ts";
+import type { BacktestResponse, ForecastRequest, ForecastResponse } from "./forecast-contract.ts";
 import { loadRoadmapIssue } from "./github-data-repository.ts";
 import { loadHistoricalData, loadHistoricalPullRequests } from "./historical-data-repository.ts";
-import { parseForecastPlan } from "./forecast-plan.ts";
-import { renderEstimate } from "./format.ts";
-import { tokenBacktest } from "./tracking/backtest.ts";
 import type { AccuracyReport, Observation, Prediction } from "./tracking/model.ts";
 
 type Io = {
@@ -27,7 +24,8 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
   era estimate --repository owner/name [--issue N] [--body roadmap.md --titles titles.json --history historical-data --plan forecast-plan.json]
 
 ERA_API_URL and ERA_API_TOKEN select the Cloudflare tracker. --api and --token override them.
-estimate is read-only and needs no tracker credentials. Dollar predictions use the versioned usd_subtotal metric.
+estimate sends a snapshot to the authenticated Worker without recording predictions.
+record-estimate calculates and records on the Worker. Dollar predictions use the versioned usd_subtotal metric.
 `;
 
 export async function runCli(argv: string[], io: Io = defaultIo()): Promise<number> {
@@ -38,13 +36,14 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
     }
     try {
         const flags = parseFlags(rest);
-        if (command === "estimate") {
-            const repository = required(flags, "repository");
-            io.stdout(renderEstimate(await loadEstimate(repository, flags), repository));
-            return 0;
-        }
         const api = endpoint(flags, io.env);
         switch (command) {
+            case "estimate": {
+                const input = await loadForecastInput(required(flags, "repository"), flags);
+                const result = await post<ForecastResponse>(api, io, "/v1/estimates", input);
+                io.stdout(result.report);
+                return 0;
+            }
             case "predictions":
                 await post(api, io, "/v1/predictions", {
                     predictions: [predictionFromFlags(flags)],
@@ -93,28 +92,24 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
             }
             case "backtest": {
                 const repository = required(flags, "repository");
-                const history = await loadHistoricalPullRequests(required(flags, "dir"));
-                const batch = tokenBacktest(repository, history);
-                await postBatches(api, io, "/v1/predictions", "predictions", batch.predictions);
-                await postBatches(api, io, "/v1/observations", "observations", batch.observations);
-                const body = await getJson<{ reports: AccuracyReport[] }>(
-                    api,
-                    io,
-                    `/v1/accuracy?repository=${encodeURIComponent(repository)}`,
-                );
+                const history = await loadHistoricalData(required(flags, "dir"));
+                const body = await post<BacktestResponse>(api, io, "/v1/backtests", {
+                    repository,
+                    history,
+                    record: true,
+                });
                 io.stdout(renderAccuracy(body.reports));
                 return 0;
             }
             case "record-estimate": {
                 const repository = required(flags, "repository");
-                const estimate = await loadEstimate(repository, flags);
-                if (estimate.issueNumber <= 0)
+                const input = await loadForecastInput(repository, flags);
+                if (input.roadmap.number <= 0)
                     throw new Error(
                         "record-estimate requires a real roadmap issue number; pass --issue for offline snapshots",
                     );
-                const predictions = predictionsFromEstimate(repository, estimate);
-                const stored = await postBatches(api, io, "/v1/predictions", "predictions", predictions);
-                io.stdout(`Stored ${stored} predictions for ${repository} issue #${estimate.issueNumber}.`);
+                const result = await post<ForecastResponse>(api, io, "/v1/estimates", { ...input, record: true });
+                io.stdout(`Stored ${result.stored} predictions for ${repository} issue #${input.roadmap.number}.`);
                 return 0;
             }
             default:
@@ -127,47 +122,7 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
     }
 }
 
-function predictionsFromEstimate(repository: string, estimate: RoadmapEstimate): Prediction[] {
-    const recordedAt = new Date().toISOString();
-    const rows: Prediction[] = [
-        row(repository, `issue:${estimate.issueNumber}`, "token-threshold", "tokens", estimate.rawTokens, recordedAt),
-        row(
-            repository,
-            `issue:${estimate.issueNumber}`,
-            "token-threshold",
-            "tokens_effective",
-            estimate.effectiveTokens,
-            recordedAt,
-        ),
-        row(repository, `issue:${estimate.issueNumber}`, "seeagent", "story_points", estimate.storyPoints, recordedAt),
-        row(
-            repository,
-            `issue:${estimate.issueNumber}`,
-            "delivery-cost-v2",
-            "usd_subtotal",
-            estimate.pricedSubtotalUsd,
-            recordedAt,
-        ),
-    ];
-    for (const child of estimate.children) {
-        rows.push(row(repository, `issue:${child.issue}`, "token-threshold", "tokens", child.tokens, recordedAt));
-        rows.push(row(repository, `issue:${child.issue}`, "seeagent", "story_points", child.storyPoints, recordedAt));
-    }
-    return rows;
-}
-
-function row(
-    repository: string,
-    subject: string,
-    model: string,
-    metric: string,
-    predicted: number,
-    recordedAt: string,
-): Prediction {
-    return { repository, subject, model, metric, predicted, recordedAt };
-}
-
-async function loadEstimate(repository: string, flags: Map<string, string>): Promise<RoadmapEstimate> {
+async function loadForecastInput(repository: string, flags: Map<string, string>): Promise<ForecastRequest> {
     if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("repository must be owner/name");
     const [owner, repo] = repository.split("/") as [string, string];
     if (flags.has("issue") && (!Number.isSafeInteger(Number(flags.get("issue"))) || Number(flags.get("issue")) <= 0))
@@ -175,37 +130,30 @@ async function loadEstimate(repository: string, flags: Map<string, string>): Pro
     const history = await loadHistoricalData(flags.get("history") ?? "historical-data");
     if (history.repository !== repository)
         throw new Error(`historical repository ${history.repository ?? "unavailable"} does not match ${repository}`);
-    const plan = flags.has("plan")
-        ? parseForecastPlan(JSON.parse(readFileSync(flags.get("plan")!, "utf8")))
-        : undefined;
-    const common = { authorOverhead: history.authorOverhead, historyGeneratedAt: history.generatedAt, plan };
+    const plan = flags.has("plan") ? JSON.parse(readFileSync(flags.get("plan")!, "utf8")) : undefined;
+    const common = { repository, history, plan };
     if (flags.has("body") && flags.has("titles")) {
-        const titles = new Map<number, string>(
-            Object.entries(JSON.parse(readFileSync(flags.get("titles")!, "utf8")) as Record<string, string>).map(
-                ([number, title]) => [Number(number), title],
-            ),
-        );
-        return estimateRoadmap({
+        return {
             ...common,
-            issueNumber: Number(flags.get("issue") ?? "0"),
-            issueTitle: flags.get("title") ?? "Roadmap",
-            issueBody: readFileSync(flags.get("body")!, "utf8"),
-            titles,
-            history: history.pullRequests,
-            reviewPool: history.reviewPool,
-        });
+            roadmap: {
+                number: Number(flags.get("issue") ?? "0"),
+                title: flags.get("title") ?? "Roadmap",
+                body: readFileSync(flags.get("body")!, "utf8"),
+                titles: JSON.parse(readFileSync(flags.get("titles")!, "utf8")),
+            },
+        };
     }
     const issue = await loadRoadmapIssue(owner, repo, flags.has("issue") ? Number(flags.get("issue")) : undefined);
-    return estimateRoadmap({
+    return {
         ...common,
-        issueNumber: issue.number,
-        issueTitle: issue.title,
-        issueBody: flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body,
-        titles: issue.titles,
-        history: history.pullRequests,
-        reviewPool: history.reviewPool,
-        issueStates: issue.issueStates,
-    });
+        roadmap: {
+            number: issue.number,
+            title: issue.title,
+            body: flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body,
+            titles: Object.fromEntries(issue.titles),
+            states: Object.fromEntries(issue.issueStates),
+        },
+    };
 }
 
 function predictionFromFlags(flags: Map<string, string>): Prediction {
@@ -263,7 +211,7 @@ async function postBatches<T>(api: Endpoint, io: Io, path: string, field: string
     return stored;
 }
 
-async function post(api: Endpoint, io: Io, path: string, payload: unknown): Promise<{ stored: number }> {
+async function post<T = { stored: number }>(api: Endpoint, io: Io, path: string, payload: unknown): Promise<T> {
     const response = await io.fetch(`${api.url}${path}`, {
         method: "POST",
         headers: headers(api.token),

@@ -4,7 +4,7 @@
 
 ## Repository
 
-The repository id is `owner/name`, with one slash and no spaces. `bun start owner/name` and `record-estimate --repository owner/name` both read that repository.
+The repository id is `owner/name`, with one slash and no spaces. The CLI collects inputs from GitHub or saved snapshots and local extracts, then submits normalized JSON to the authenticated Worker. `ERA_API_URL` and `ERA_API_TOKEN` (or `--api` and `--token`) are required for all estimate commands. The Worker calculates, formats and optionally records results. See [the endpoint contract](FORECAST-API.md).
 
 Issues are the work items on the roadmap. Pull requests are history and later observations. A pull request is never a roadmap node, even when its title contains "roadmap".
 
@@ -150,7 +150,9 @@ Chronological retrospective token validation compares repository and epic median
 
 An observation uses the same `issue:` or `pr:` subject as the prediction it should score.
 
-`estimate` is read-only and requires no tracker credentials; offline snapshots can omit `--issue`. `record-estimate` requires a positive real roadmap issue number before writing to the tracker, including for offline snapshots. Recording new dollar rows does not migrate or overwrite legacy dollar predictions.
+`estimate` calls `POST /v1/estimates` without recording ledger rows; saved snapshots can omit `--issue`. It requires Worker credentials even when GitHub access is unnecessary. `record-estimate` calls the same endpoint with `record: true` and requires a positive real roadmap issue number before writing to the tracker. Recording new dollar rows does not migrate or overwrite legacy dollar predictions.
+
+The Worker accepts at most 2 MiB of UTF-8 request data, 1000 historical PRs, 1000 issue-title/state entries, and 1000 distinct roadmap member issues. Inclusive issue ranges contain at most 1000 safe positive integer IDs. Invalid snapshot/history/plan data returns 400, excessive body size 413, unsupported content type 415, and authentication/access failures 401/403. Calibration helpers and history types are runtime-independent; file loading stays in the CLI adapter.
 
 ## Minimal body
 

@@ -1,4 +1,4 @@
-import { type HistoricalPullRequest, isCalibrationSample } from "./historical-data-repository.ts";
+import { type HistoricalPullRequest, isCalibrationSample } from "./history.ts";
 import { meanAbsoluteError, meanMagnitudeRelativeError, median, predictionWithin } from "./theory.ts";
 
 export type TokenValidationScore = { count: number; maeTokens: number; mmre: number; pred: number };
