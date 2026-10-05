@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { estimateRoadmap } from "./estimator.ts";
 import { renderEstimate } from "./format.ts";
-import { type HistoricalPullRequest, loadHistoricalData } from "../history/historical-data-repository.ts";
+import { type HistoricalPullRequest, loadHistoricalData } from "../repositories/historical-data-repository.ts";
 import { buildDependencyGraph, parseRoadmap } from "../roadmap/roadmap.ts";
 
 function history(thinkingTokens = 40_000): HistoricalPullRequest[] {

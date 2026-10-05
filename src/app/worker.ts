@@ -1,6 +1,6 @@
 import { createLedger } from "./composition.ts";
 import { type AuthConfig, AuthService, authFailure } from "../services/auth-service.ts";
-import { AuthStore } from "../auth/store.ts";
+import { AuthStore } from "../repositories/auth-store.ts";
 import { handleRequest } from "./http.ts";
 import type { SqlDatabase } from "../persistence/database.ts";
 

@@ -1,4 +1,4 @@
-import githubClient from "./github-client.ts";
+import githubClient from "../github/github-client.ts";
 
 export type RoadmapIssue = {
     number: number;

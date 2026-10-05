@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadHistoricalData, loadHistoricalPullRequests } from "./historical-data-repository.ts";
+import { loadHistoricalData, loadHistoricalPullRequests } from "../repositories/historical-data-repository.ts";
 
 const dataDirectory = join(import.meta.dir, "../..", "historical-data");
 const localHistoryTest = test.skipIf(

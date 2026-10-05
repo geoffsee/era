@@ -7,7 +7,7 @@ import {
     type HistoricalPullRequest,
     isCalibrationSample,
     loadHistoricalPullRequests,
-} from "../history/historical-data-repository.ts";
+} from "../repositories/historical-data-repository.ts";
 import { buildDependencyGraph, parseRoadmap } from "../roadmap/roadmap.ts";
 import {
     contextFactor,

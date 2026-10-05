@@ -14,7 +14,7 @@ import {
 import { parseRoadmapConfig, roadmapHistory } from "../roadmap/roadmap-format.ts";
 import { assertAccess, HttpError, type Identity } from "../auth/access.ts";
 import { tokenBacktest } from "../tracking/backtest.ts";
-import type { Ledger } from "../tracking/ledger.ts";
+import type { Ledger } from "../repositories/ledger.ts";
 import { scoreRepository } from "../tracking/score.ts";
 
 @Container({ singleton: false })

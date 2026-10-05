@@ -6,11 +6,11 @@ import { join } from "node:path";
 import { base64UrlEncode, hashSecret, sha256 } from "@di-framework/auth";
 import { runCli } from "../cli/cli.ts";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../tracking/ledger.ts";
+import { MemoryLedger } from "../repositories/ledger.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 import { credentialId, FileCredentialCache, MemoryCredentialCache } from "./credentials.ts";
 import { type AuthConfig, AuthService, type LoginFlow } from "../services/auth-service.ts";
-import { AuthStore, type RepositoryKey } from "./store.ts";
+import { AuthStore, type RepositoryKey } from "../repositories/auth-store.ts";
 
 const config: AuthConfig = {
     PUBLIC_API_URL: "https://era.test",

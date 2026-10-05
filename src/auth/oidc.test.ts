@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../tracking/ledger.ts";
+import { MemoryLedger } from "../repositories/ledger.ts";
 import { GITHUB_OIDC_ISSUER, verifyGitHubOidc } from "./oidc.ts";
 
 describe("GitHub Actions OIDC", () => {

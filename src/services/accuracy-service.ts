@@ -1,5 +1,5 @@
 import { Component, Container } from "@di-framework/core/decorators";
-import type { Ledger } from "../tracking/ledger.ts";
+import type { Ledger } from "../repositories/ledger.ts";
 import {
     assertFinite,
     assertRepository,

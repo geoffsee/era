@@ -7,8 +7,8 @@ import { AccuracyService, LEDGER } from "../services/accuracy-service.ts";
 import { tokenBacktest } from "./backtest.ts";
 import { handleRequest } from "../app/http.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
-import { MemoryLedger } from "./ledger.ts";
-import type { HistoricalPullRequest } from "../history/historical-data-repository.ts";
+import { MemoryLedger } from "../repositories/ledger.ts";
+import type { HistoricalPullRequest } from "../repositories/historical-data-repository.ts";
 
 const TOKEN = "test-token";
 

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { createLedger } from "../app/composition.ts";
 import { CompositeSqlAdapter } from "../persistence/composite-sql-adapter.ts";
 import { PredictionRepository, SCHEMA_SQL } from "./ledger.ts";
-import { SqliteRepository } from "../persistence/sqlite-repository.ts";
+import { SqliteRepository } from "./sqlite-repository.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 
 function fixture() {

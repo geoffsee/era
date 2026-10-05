@@ -3,7 +3,7 @@ import { useContainer } from "@di-framework/core/container";
 import { ForecastController } from "../controllers/forecast-controller.ts";
 import { LEDGER } from "../services/accuracy-service.ts";
 import { TrackingController } from "../controllers/tracking-controller.ts";
-import { D1Ledger, type Ledger } from "../tracking/ledger.ts";
+import { D1Ledger, type Ledger } from "../repositories/ledger.ts";
 
 // Fork registrations so concurrent requests never replace each other's repositories.
 export function createControllers(ledger: Ledger) {

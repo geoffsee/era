@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../cli/cli.ts";
 import { calculateForecast, parseForecastRequest } from "../services/forecast-service.ts";
-import { loadHistoricalData } from "../history/historical-data-repository.ts";
+import { loadHistoricalData } from "../repositories/historical-data-repository.ts";
 import { parseRoadmapConfig, type RoadmapConfig, resolveRoadmap, roadmapHistory } from "./roadmap-format.ts";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../tracking/ledger.ts";
+import { MemoryLedger } from "../repositories/ledger.ts";
 
 const config: RoadmapConfig = {
     format: "markdown-table",

@@ -1,6 +1,6 @@
 import { EntityRepository, type SqlAdapterOptions } from "@di-framework/repo/portable";
-import { CompositeSqlAdapter } from "./composite-sql-adapter.ts";
-import type { SqlDatabase } from "./database.ts";
+import { CompositeSqlAdapter } from "../persistence/composite-sql-adapter.ts";
+import type { SqlDatabase } from "../persistence/database.ts";
 
 export type SqliteRepositoryOptions<E> = Omit<SqlAdapterOptions<E>, "idColumn"> & {
     /** Ordered SQLite primary-key columns, including single-column keys. */

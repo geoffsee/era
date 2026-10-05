@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { runCli } from "./cli.ts";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../tracking/ledger.ts";
+import { MemoryLedger } from "../repositories/ledger.ts";
 
 const root = join(import.meta.dir, "../..");
 const args = [

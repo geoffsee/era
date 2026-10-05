@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { useContainer } from "@di-framework/core/container";
 import { AccuracyService, LEDGER } from "../services/accuracy-service.ts";
 import { createControllers } from "./composition.ts";
-import { MemoryLedger } from "../tracking/ledger.ts";
+import { MemoryLedger } from "../repositories/ledger.ts";
 
 test("injected controllers retain isolated repositories across interleaved requests", async () => {
     const globalLedger = new MemoryLedger();

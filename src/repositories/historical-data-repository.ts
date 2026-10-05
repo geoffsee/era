@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { EMPTY_REVIEW_POOL, epicNumberFromTitle, type HistoricalData, type HistoricalPullRequest } from "./history.ts";
+import {
+    EMPTY_REVIEW_POOL,
+    epicNumberFromTitle,
+    type HistoricalData,
+    type HistoricalPullRequest,
+} from "../history/history.ts";
 
 export type {
     HistoricalAuthorOverhead,
@@ -10,8 +15,8 @@ export type {
     HistoricalPullRequest,
     ReviewPool,
     UnmatchedReview,
-} from "./history.ts";
-export { EMPTY_REVIEW_POOL, epicNumberFromTitle, isCalibrationSample } from "./history.ts";
+} from "../history/history.ts";
+export { EMPTY_REVIEW_POOL, epicNumberFromTitle, isCalibrationSample } from "../history/history.ts";
 
 type TokenFile = {
     metadata: { repository?: string; total_prs_tracked?: number; generated_at?: string };

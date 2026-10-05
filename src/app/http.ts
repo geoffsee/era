@@ -5,7 +5,7 @@ import { authFailure } from "../services/auth-service.ts";
 import { ForecastInputError } from "../services/forecast-service.ts";
 import { authenticate, HttpError, type Identity } from "../auth/access.ts";
 import { createControllers } from "./composition.ts";
-import type { Ledger } from "../tracking/ledger.ts";
+import type { Ledger } from "../repositories/ledger.ts";
 
 export type TrackerDeps = {
     ledger: Ledger;

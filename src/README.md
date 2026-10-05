@@ -3,17 +3,18 @@
 | Directory | Purpose |
 | --- | --- |
 | `app/` | Worker entry point, HTTP dispatch, and dependency composition |
+| `repositories/` | Ledger repositories, authentication storage, historical and GitHub data access, and the SQLite repository base |
 | `services/` | Authentication, forecasting, and accuracy application services |
 | `controllers/` | Authentication, forecast, and tracking HTTP handlers |
-| `auth/` | GitHub login, credentials, scoped access, OIDC, and authentication storage |
+| `auth/` | GitHub login, credentials, scoped access, and OIDC |
 | `cli/` | Installed executable and command orchestration |
 | `forecast/` | Estimation, cost accounting, calibration validation, forecast plans, and reports |
 | `roadmap/` | Roadmap parsing, configurable formats, normalization, and dependency graphs |
-| `history/` | Historical usage model and dataset loading |
+| `history/` | Historical usage model and dataset tests |
 | `usage/` | Author-session and review usage extraction and attribution |
-| `github/` | GitHub client and issue/roadmap retrieval |
-| `tracking/` | Predictions, observations, accuracy scoring, backtests, and ledger repositories |
-| `persistence/` | Shared database contracts, SQLite repository, and SQL adapters |
+| `github/` | GitHub API client |
+| `tracking/` | Predictions, observations, accuracy scoring, and backtests |
+| `persistence/` | Shared database contracts and SQL adapters |
 
 Tests live beside the behavior they verify. Integration tests may exercise several domains.
 Dependency registration belongs in `app/composition.ts`; controllers receive services and services receive repositories through constructor injection. Domain repositories own their queries; shared persistence code has no dependency on tracking or authentication.

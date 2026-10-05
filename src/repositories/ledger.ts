@@ -1,7 +1,7 @@
 import { Component } from "@di-framework/core/decorators";
 import { InMemoryRepository, Repository } from "@di-framework/repo/portable";
-import { SqliteRepository } from "../persistence/sqlite-repository.ts";
-import type { Observation, Prediction, ScoredPair } from "./model.ts";
+import { SqliteRepository } from "./sqlite-repository.ts";
+import type { Observation, Prediction, ScoredPair } from "../tracking/model.ts";
 
 import { SQL_DATABASE, type SqlDatabase } from "../persistence/database.ts";
 

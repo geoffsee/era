@@ -5,8 +5,8 @@ import { hashSecret } from "@di-framework/auth";
 import { apiUrl, login } from "../auth/cli.ts";
 import { type CredentialCache, credentialId, FileCredentialCache, MemoryCredentialCache } from "../auth/credentials.ts";
 import type { BacktestResponse, ForecastRequest, ForecastResponse } from "../forecast/forecast-contract.ts";
-import { loadRoadmapIssue } from "../github/github-data-repository.ts";
-import { loadHistoricalData, loadHistoricalPullRequests } from "../history/historical-data-repository.ts";
+import { loadRoadmapIssue } from "../repositories/github-data-repository.ts";
+import { loadHistoricalData, loadHistoricalPullRequests } from "../repositories/historical-data-repository.ts";
 import type { RoadmapConfig } from "../roadmap/roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "../tracking/model.ts";
 

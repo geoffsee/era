@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { HistoricalPullRequest } from "../history/historical-data-repository.ts";
+import type { HistoricalPullRequest } from "../repositories/historical-data-repository.ts";
 import { chronologicalTokenValidation } from "./validation.ts";
 
 function sample(number: number, tokens: number, createdAt: string, mergedAt: string): HistoricalPullRequest {

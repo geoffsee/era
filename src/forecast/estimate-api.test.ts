@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { handleRequest } from "../app/http.ts";
-import { MemoryLedger } from "../tracking/ledger.ts";
-import { loadHistoricalData } from "../history/historical-data-repository.ts";
+import { MemoryLedger } from "../repositories/ledger.ts";
+import { loadHistoricalData } from "../repositories/historical-data-repository.ts";
 import type { ForecastResponse } from "./forecast-contract.ts";
 
 const history = await loadHistoricalData(new URL("../../test/fixtures/forecast-history", import.meta.url).pathname);

@@ -18,7 +18,7 @@ import {
 } from "@di-framework/auth";
 import { githubProvider, type OAuthTokens, oauthClient } from "@di-framework/auth/oauth";
 import { HttpError, type Identity } from "../auth/access.ts";
-import type { AuthStore, Grant, RepositoryKey } from "../auth/store.ts";
+import type { AuthStore, Grant, RepositoryKey } from "../repositories/auth-store.ts";
 
 export interface AuthConfig {
     PUBLIC_API_URL: string;
