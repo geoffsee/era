@@ -36,7 +36,8 @@ function fixture() {
         refreshFailure: false,
         refreshOutage: false,
     };
-    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const fetchImpl = async function (this: unknown, input: string | URL | Request, init?: RequestInit) {
+        expect(this).toBeUndefined();
         const url = new URL(String(input));
         if (url.pathname === "/login/oauth/access_token") {
             const fields = new URLSearchParams(String(init?.body));
@@ -68,7 +69,7 @@ function fixture() {
         if (url.pathname === "/user/installations/55/repositories")
             return Response.json({ repositories: provider.installed ? [{ id: provider.repoId }] : [] });
         throw new Error(`Unexpected provider URL ${url.pathname}`);
-    }) as typeof fetch;
+    } as typeof fetch;
     const store = new AuthStore(new BunSqlDatabase(database), () => clock.now);
     const service = new AuthService(store, config, fetchImpl);
     const ledger = new MemoryLedger();

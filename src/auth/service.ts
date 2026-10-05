@@ -356,7 +356,8 @@ export class AuthService {
     private async github<T>(token: string, path: string): Promise<T> {
         let response: Response;
         try {
-            response = await this.fetchImpl(`https://api.github.com${path}`, {
+            const fetchImpl = this.fetchImpl;
+            response = await fetchImpl(`https://api.github.com${path}`, {
                 headers: {
                     authorization: `Bearer ${token}`,
                     accept: "application/vnd.github+json",
@@ -365,7 +366,15 @@ export class AuthService {
                 },
                 signal: AbortSignal.timeout(10000),
             });
-        } catch {
+        } catch (error) {
+            console.warn(
+                JSON.stringify({
+                    event: "era.auth.github-unavailable",
+                    path,
+                    reason: "transport",
+                    error: error instanceof Error ? error.name : "unknown",
+                }),
+            );
             throw new HttpError("GitHub access checks are unavailable; retry", 503);
         }
         if (
@@ -373,13 +382,31 @@ export class AuthService {
             response.status >= 500 ||
             response.headers.get("x-ratelimit-remaining") === "0" ||
             response.headers.has("retry-after")
-        )
+        ) {
+            console.warn(
+                JSON.stringify({
+                    event: "era.auth.github-unavailable",
+                    path,
+                    reason: "provider",
+                    status: response.status,
+                    remaining: response.headers.get("x-ratelimit-remaining"),
+                }),
+            );
             throw new HttpError("GitHub access checks are unavailable; retry", 503);
+        }
         if (response.status === 401) throw new HttpError("GitHub authorization revoked; run era login", 401);
         if (!response.ok) throw new HttpError("GitHub repository write access and app installation are required", 403);
         try {
             return (await response.json()) as T;
         } catch {
+            console.warn(
+                JSON.stringify({
+                    event: "era.auth.github-unavailable",
+                    path,
+                    reason: "invalid-json",
+                    status: response.status,
+                }),
+            );
             throw new HttpError("GitHub access checks are unavailable; retry", 503);
         }
     }
