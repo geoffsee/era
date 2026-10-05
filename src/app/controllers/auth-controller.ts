@@ -3,6 +3,7 @@ import { Controller } from "@di-framework/http/portable";
 import { requireAuth } from "@di-framework/auth/http";
 import { checkRequestOrigin } from "@di-framework/auth";
 import { eraStrategy, requestIdentity, HttpError } from "../../core/auth/access.ts";
+import { WORKER_SETTINGS, type WorkerSettings } from "../configuration.ts";
 import { AuthService, authFailure } from "../services/auth-service.ts";
 
 const escapeHtml = (value: string) =>
@@ -70,16 +71,18 @@ async function form(request: Request): Promise<URLSearchParams> {
         throw new HttpError("Form submission is required", 415);
     return new URLSearchParams(await textBody(request));
 }
-@Controller({ singleton: false })
+@Controller()
 export class AuthController {
-    constructor(@Component(AuthService) private readonly service: AuthService | undefined) {}
+    constructor(
+        @Component(AuthService) private readonly service: AuthService,
+        @Component(WORKER_SETTINGS) private readonly settings: WorkerSettings,
+    ) {}
 
-    async handle(request: Request, apiToken: string): Promise<Response | undefined> {
+    /** Mounted under /auth/* once login is configured. */
+    async handle(request: Request): Promise<Response> {
         const service = this.service;
         const url = new URL(request.url);
-        if (!url.pathname.startsWith("/auth/")) return undefined;
         try {
-            if (!service) throw new HttpError("GitHub login is not configured on this Worker", 503);
             if (url.origin !== service.origin) throw new HttpError("Use the configured ERA API URL", 400);
             const ip = request.headers.get("cf-connecting-ip") ?? "local";
             const path = url.pathname;
@@ -138,7 +141,7 @@ export class AuthController {
             if (path === "/auth/tokens" || /^\/auth\/tokens\/[^/]+$/.test(path)) {
                 const rejection = await requireAuth({
                     strategy: eraStrategy({
-                        apiToken,
+                        apiToken: this.settings.apiToken,
                         audience: service.origin,
                         authenticateEra: (req) => service.identity(req, false),
                     }),

@@ -1,60 +1,68 @@
 import { applyAuthHeaders, requireAuthExcept, withAuthErrors } from "@di-framework/auth/http";
-import { json, TypedRouter } from "@di-framework/http/portable";
-import { AuthController } from "./controllers/auth-controller.ts";
-import { AuthService } from "./services/auth-service.ts";
-import { authFailure } from "./services/auth-service.ts";
-import { ForecastInputError } from "./services/forecast-service.ts";
-import { eraStrategy, HttpError } from "../core/auth/access.ts";
 import { useContainer } from "@di-framework/core/container";
+import { json, TypedRouter } from "@di-framework/http/portable";
+import { eraStrategy, HttpError } from "../core/auth/access.ts";
+import { InputError } from "../core/tracking/model.ts";
+import { WORKER_SETTINGS, type WorkerSettings } from "./configuration.ts";
+import { AuthController } from "./controllers/auth-controller.ts";
 import { ForecastController } from "./controllers/forecast-controller.ts";
 import { TrackingController } from "./controllers/tracking-controller.ts";
-import { AccuracyService } from "./services/accuracy-service.ts";
+import { ForecastSchema } from "./repositories/forecast-schema.ts";
+import { AuthService, authFailure } from "./services/auth-service.ts";
 
-export type TrackerDeps = {
-    accuracyService: AccuracyService;
-    apiToken: string;
-    audience?: string;
-    auth?: AuthService;
-    verifyOidc?: (token: string, audience: string) => Promise<{ repository: string; workflowRef?: string }>;
-};
+const container = useContainer();
+const settings = () => container.resolve<WorkerSettings>(WORKER_SETTINGS);
 
-export async function handleRequest(request: Request, deps: TrackerDeps): Promise<Response> {
-    const url = new URL(request.url);
-    const container = useContainer();
-    container.registerFactory(AccuracyService, () => deps.accuracyService, { singleton: false });
-    container.registerFactory(AuthService, () => deps.auth, { singleton: false });
-    const authController = container.resolve(AuthController);
-    const forecastController = container.resolve(ForecastController);
-    const trackingController = container.resolve(TrackingController);
-    const guard = requireAuthExcept([/^\/health$/, /^\/auth\//], {
-        strategy: eraStrategy({
-            apiToken: deps.apiToken,
-            audience: deps.audience ?? url.origin,
-            verifyOidc: deps.verifyOidc,
-            authenticateEra: deps.auth ? (req) => deps.auth!.identity(req) : undefined,
-        }),
-        onUnauthenticated: (_request, error) => authFailure(error),
-    });
-    const router = TypedRouter({
-        before: [(request) => guard(request as Request)],
-        catch: withAuthErrors({ fallback: failure, log: () => {} }),
-        finally: [applyAuthHeaders],
-    });
-    router.all("*", async (req: Request) => {
-        const auth = await authController.handle(req, deps.apiToken);
-        if (auth) return auth;
-        const forecast = await forecastController.handle(req);
-        if (forecast) return forecast;
-        return (await trackingController.fetch(req)) ?? json({ error: "not found" }, { status: 404 });
-    });
-    return router.fetch(request);
-}
+/** Storage readiness, then the bearer guard, then controllers resolved from the container. */
+const router = TypedRouter({
+    before: [
+        async (input) => {
+            const request = input as Request;
+            try {
+                await container.resolve(ForecastSchema).ensure();
+            } catch {
+                throw new HttpError("Forecast storage is unavailable; retry", 503);
+            }
+            const { apiToken, oidcAudience, auth } = settings();
+            return requireAuthExcept([/^\/health$/, /^\/auth\//], {
+                strategy: eraStrategy({
+                    apiToken,
+                    audience: oidcAudience ?? new URL(request.url).origin,
+                    authenticateEra: auth ? (req) => container.resolve(AuthService).identity(req) : undefined,
+                }),
+                onUnauthenticated: (_request, error) => authFailure(error),
+            })(request);
+        },
+    ],
+    catch: withAuthErrors({ fallback: failure, log: () => {} }),
+    finally: [applyAuthHeaders],
+});
 
+router.all("/auth/*", async (request: Request) => {
+    if (!settings().auth) return authFailure(new HttpError("GitHub login is not configured on this Worker", 503));
+    try {
+        return await container.resolve(AuthController).handle(request);
+    } catch (error) {
+        // Resolving AuthService validates the GitHub App bindings; misconfiguration reads as an auth outage.
+        return authFailure(error);
+    }
+});
+router.all(
+    "*",
+    async (request: Request) =>
+        (await container.resolve(ForecastController).handle(request)) ??
+        (await container.resolve(TrackingController).fetch(request)) ??
+        json({ error: "not found" }, { status: 404 }),
+);
+
+/** The one place domain errors become HTTP statuses. */
 function failure(error: unknown): Response {
-    if (error instanceof HttpError && [401, 403, 429, 503].includes(error.status)) return authFailure(error);
-    if (error instanceof ForecastInputError) return json({ error: error.message }, { status: 400 });
-    if (error instanceof HttpError) return json({ error: error.message }, { status: error.status });
-    const message = error instanceof Error ? error.message : "request failed";
-    const status = message.includes("required") || message.includes("must") ? 400 : 500;
-    return json({ error: message }, { status });
+    if (error instanceof HttpError) {
+        if ([401, 403, 429, 503].includes(error.status)) return authFailure(error);
+        return json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof InputError) return json({ error: error.message }, { status: 400 });
+    return json({ error: "request failed" }, { status: 500 });
 }
+
+export default router;

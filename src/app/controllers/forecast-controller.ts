@@ -4,7 +4,7 @@ import { ForecastService } from "../services/forecast-application-service.ts";
 import { ForecastInputError } from "../services/forecast-service.ts";
 import { HttpError, requestIdentity } from "../../core/auth/access.ts";
 
-@Controller({ singleton: false })
+@Controller()
 export class ForecastController {
     constructor(@Component(ForecastService) private readonly service: ForecastService) {}
 

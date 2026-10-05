@@ -1,6 +1,6 @@
 import { createTestAccuracyService } from "../../../test/helpers/accuracy.ts";
 import { expect, test } from "bun:test";
-import { handleRequest } from "../../app/http.ts";
+import { handleRequest } from "../../../test/helpers/http.ts";
 import { loadHistoricalData } from "../../app/repositories/historical-data-repository.ts";
 import type { ForecastResponse } from "./forecast-contract.ts";
 

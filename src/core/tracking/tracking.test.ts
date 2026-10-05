@@ -2,7 +2,7 @@ import { createTestAccuracyService } from "../../../test/helpers/accuracy.ts";
 import { describe, expect, test } from "bun:test";
 import { runCli } from "../../cli/cli.ts";
 import { tokenBacktest } from "./backtest.ts";
-import { handleRequest } from "../../app/http.ts";
+import { handleRequest } from "../../../test/helpers/http.ts";
 import type { HistoricalPullRequest } from "../../app/repositories/historical-data-repository.ts";
 
 const TOKEN = "test-token";

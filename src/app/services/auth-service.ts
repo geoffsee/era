@@ -1,3 +1,4 @@
+import { Component, Container } from "@di-framework/core/decorators";
 import {
     AuthError,
     apiKeyStrategy,
@@ -18,7 +19,8 @@ import {
 } from "@di-framework/auth";
 import { githubProvider, type OAuthTokens, oauthClient } from "@di-framework/auth/oauth";
 import { HttpError, type Identity } from "../../core/auth/access.ts";
-import type { AuthStore, Grant, RepositoryKey } from "../repositories/auth-store.ts";
+import { AUTH_CONFIG } from "../configuration.ts";
+import { AuthRepository, type Grant, type RepositoryKey } from "../repositories/auth-repository.ts";
 
 export interface AuthConfig {
     PUBLIC_API_URL: string;
@@ -50,6 +52,7 @@ export type LoginFlow = {
 const FLOW_SECONDS = 600;
 const KEY_SECONDS = 30 * 86400;
 
+@Container()
 export class AuthService {
     readonly client;
     readonly sessions;
@@ -57,8 +60,8 @@ export class AuthService {
     readonly origin: string;
     private readonly cryptoKey: Promise<CryptoKey>;
     constructor(
-        readonly store: AuthStore,
-        readonly config: AuthConfig,
+        @Component(AuthRepository) readonly store: AuthRepository,
+        @Component(AUTH_CONFIG) readonly config: AuthConfig,
         readonly fetchImpl: typeof fetch = fetch,
     ) {
         const url = new URL(config.PUBLIC_API_URL);

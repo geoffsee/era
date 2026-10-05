@@ -16,7 +16,7 @@ import { assertAccess, HttpError, type Identity } from "../../core/auth/access.t
 import { tokenBacktest } from "../../core/tracking/backtest.ts";
 import { scoreRepository } from "../../core/tracking/score.ts";
 
-@Container({ singleton: false })
+@Container()
 export class ForecastService {
     constructor(@Component(AccuracyService) private readonly accuracyService: AccuracyService) {}
 

@@ -6,13 +6,14 @@ import {
     assertRepository,
     assertTimestamp,
     assertToken,
+    InputError,
     type AccuracyReport,
     type Observation,
     type Prediction,
 } from "../../core/tracking/model.ts";
 import { scoreRepository } from "../../core/tracking/score.ts";
 
-@Container({ singleton: false })
+@Container()
 export class AccuracyService {
     constructor(
         @Component(PredictionRepository) private readonly predictionRows: PredictionRepository,
@@ -79,20 +80,20 @@ function parseObservation(input: unknown, now: string): Observation {
 
 function object(input: unknown, label: string): Record<string, unknown> {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
-        throw new Error(`${label} must be an object`);
+        throw new InputError(`${label} must be an object`);
     }
     return input as Record<string, unknown>;
 }
 
 function stringField(record: Record<string, unknown>, key: string): string {
     const value = record[key];
-    if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
+    if (typeof value !== "string" || value.length === 0) throw new InputError(`${key} is required`);
     return value;
 }
 
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {
     const value = record[key];
     if (value === undefined) return undefined;
-    if (typeof value !== "string") throw new Error(`${key} must be a string`);
+    if (typeof value !== "string") throw new InputError(`${key} must be a string`);
     return value;
 }

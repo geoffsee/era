@@ -11,9 +11,9 @@ import {
 } from "@di-framework/http/portable";
 import { AccuracyService } from "../services/accuracy-service.ts";
 import { assertAccess, HttpError, requestIdentity, type Identity } from "../../core/auth/access.ts";
-import type { AccuracyReport, Observation, Prediction } from "../../core/tracking/model.ts";
+import { type AccuracyReport, InputError, type Observation, type Prediction } from "../../core/tracking/model.ts";
 
-@Controller({ singleton: false })
+@Controller()
 export class TrackingController {
     private readonly router = TypedRouter();
 
@@ -106,15 +106,15 @@ function guardRows(identity: Identity | undefined, rows: readonly unknown[]): vo
 
 function requiredRepository(value: string | string[] | undefined, identity: Identity | undefined): string {
     const repository = queryValue(value);
-    if (!repository) throw new Error("repository query is required");
+    if (!repository) throw new InputError("repository query is required");
     if (!identity) throw new HttpError("unauthorized", 401);
     assertAccess(identity, repository);
     return repository;
 }
 
 function arrayField(value: unknown, label: string): unknown[] {
-    if (!Array.isArray(value) || value.length === 0) throw new Error(`${label} must be a non-empty array`);
-    if (value.length > 1000) throw new Error(`${label} is limited to 1000 rows`);
+    if (!Array.isArray(value) || value.length === 0) throw new InputError(`${label} must be a non-empty array`);
+    if (value.length > 1000) throw new InputError(`${label} is limited to 1000 rows`);
     return value;
 }
 

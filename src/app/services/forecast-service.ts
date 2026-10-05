@@ -4,9 +4,9 @@ import { parseForecastPlan } from "../../core/forecast/forecast-plan.ts";
 import { renderEstimate } from "../../core/forecast/format.ts";
 import { EMPTY_REVIEW_POOL, type HistoricalData } from "../../core/history/history.ts";
 import { parseRoadmapConfig, resolveRoadmap } from "../../core/roadmap/roadmap-format.ts";
-import { assertRepository, type Prediction } from "../../core/tracking/model.ts";
+import { assertRepository, InputError, type Prediction } from "../../core/tracking/model.ts";
 
-export class ForecastInputError extends Error {}
+export class ForecastInputError extends InputError {}
 
 export function parseForecastRequest(value: unknown): ForecastRequest {
     const input = object(value, "forecast request");

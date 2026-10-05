@@ -7,7 +7,7 @@ import { runCli } from "../../cli/cli.ts";
 import { calculateForecast, parseForecastRequest } from "../../app/services/forecast-service.ts";
 import { loadHistoricalData } from "../../app/repositories/historical-data-repository.ts";
 import { parseRoadmapConfig, type RoadmapConfig, resolveRoadmap, roadmapHistory } from "./roadmap-format.ts";
-import { handleRequest } from "../../app/http.ts";
+import { handleRequest } from "../../../test/helpers/http.ts";
 
 const config: RoadmapConfig = {
     format: "markdown-table",

@@ -1,3 +1,5 @@
+import { Component } from "@di-framework/core/decorators";
+import { Repository } from "@di-framework/repo/portable";
 import type {
     ApiKeyCredential,
     CredentialStore,
@@ -7,14 +9,16 @@ import type {
     StateStore,
 } from "@di-framework/auth";
 import type { SqlDatabase } from "../../core/persistence/database.ts";
+import { SQL_DATABASE } from "../configuration.ts";
 
 export type Grant = { repository: string; repositoryId: number; installationId: number };
 export type RepositoryKey = ApiKeyCredential & Grant;
 
 /** Durable records; compare-and-swap and consume are single SQL statements across Worker isolates. */
-export class AuthStore {
+@Repository()
+export class AuthRepository {
     constructor(
-        readonly db: SqlDatabase,
+        @Component(SQL_DATABASE) readonly db: SqlDatabase,
         readonly now: () => number = () => Math.floor(Date.now() / 1000),
     ) {}
 

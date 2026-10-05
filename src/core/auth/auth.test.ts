@@ -6,11 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { base64UrlEncode, hashSecret, sha256 } from "@di-framework/auth";
 import { runCli } from "../../cli/cli.ts";
-import { handleRequest } from "../../app/http.ts";
+import { handleRequest } from "../../../test/helpers/http.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 import { credentialId, FileCredentialCache, MemoryCredentialCache } from "./credentials.ts";
 import { type AuthConfig, AuthService, type LoginFlow } from "../../app/services/auth-service.ts";
-import { AuthStore, type RepositoryKey } from "../../app/repositories/auth-store.ts";
+import { AuthRepository, type RepositoryKey } from "../../app/repositories/auth-repository.ts";
 
 const config: AuthConfig = {
     PUBLIC_API_URL: "https://era.test",
@@ -70,7 +70,7 @@ function fixture() {
             return Response.json({ repositories: provider.installed ? [{ id: provider.repoId }] : [] });
         throw new Error(`Unexpected provider URL ${url.pathname}`);
     } as typeof fetch;
-    const store = new AuthStore(new BunSqlDatabase(database), () => clock.now);
+    const store = new AuthRepository(new BunSqlDatabase(database), () => clock.now);
     const service = new AuthService(store, config, fetchImpl);
     const accuracyService = createTestAccuracyService();
     const request = (path: string, init?: RequestInit) =>

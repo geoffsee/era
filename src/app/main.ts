@@ -1,39 +1,23 @@
-import { ensureForecastSchema } from "../core/persistence/schema.ts";
+import { ApplicationContext } from "@di-framework/core/application-context";
 import { useContainer } from "@di-framework/core/container";
-import { AccuracyService } from "./services/accuracy-service.ts";
-import { type AuthConfig, AuthService, authFailure } from "./services/auth-service.ts";
-import { AuthStore } from "./repositories/auth-store.ts";
-import { handleRequest } from "./http.ts";
-import { SQL_DATABASE, type SqlDatabase } from "../core/persistence/database.ts";
+import { WORKER_SETTINGS, WorkerConfiguration, type WorkerSettings } from "./configuration.ts";
+import { ForecastController } from "./controllers/forecast-controller.ts";
+import { TrackingController } from "./controllers/tracking-controller.ts";
+import router from "./http.ts";
+import { AuthRepository } from "./repositories/auth-repository.ts";
 
-export interface Env extends Partial<AuthConfig> {
-    DB: SqlDatabase;
-    API_TOKEN?: string;
-    OIDC_AUDIENCE?: string;
-}
+const container = useContainer();
+
+// Bindings become beans and the always-on controllers resolve before the first request,
+// so a missing registration fails at deploy time rather than under traffic.
+await ApplicationContext.builder(container)
+    .configuration(WorkerConfiguration)
+    .bootstrap(ForecastController, TrackingController)
+    .start();
 
 export default {
-    async fetch(request: Request, env: Env): Promise<Response> {
-        const container = useContainer();
-        container.registerFactory(SQL_DATABASE, () => env.DB, { singleton: false });
-        const accuracyService = container.construct(AccuracyService);
-        await ensureForecastSchema(env.DB);
-        let auth: AuthService | undefined;
-        if (env.PUBLIC_API_URL) {
-            try {
-                auth = new AuthService(new AuthStore(env.DB), env as AuthConfig);
-            } catch (error) {
-                return authFailure(error);
-            }
-        }
-        return handleRequest(request, {
-            accuracyService,
-            apiToken: env.API_TOKEN ?? "",
-            audience: env.OIDC_AUDIENCE || new URL(request.url).origin,
-            auth,
-        });
-    },
-    async scheduled(_event: unknown, env: Env): Promise<void> {
-        if (env.PUBLIC_API_URL) await new AuthStore(env.DB).purge();
+    fetch: (request: Request): Promise<Response> => router.fetch(request),
+    async scheduled(): Promise<void> {
+        if (container.resolve<WorkerSettings>(WORKER_SETTINGS).auth) await container.resolve(AuthRepository).purge();
     },
 };

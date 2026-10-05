@@ -1,10 +1,11 @@
 import { Component } from "@di-framework/core/decorators";
 import { EntityRepository, Repository } from "@di-framework/repo/portable";
 import { CompositeSqlAdapter } from "../../core/persistence/composite-sql-adapter.ts";
-import { SQL_DATABASE, type SqlDatabase } from "../../core/persistence/database.ts";
+import type { SqlDatabase } from "../../core/persistence/database.ts";
+import { SQL_DATABASE } from "../configuration.ts";
 import type { Observation } from "../../core/tracking/model.ts";
 
-@Repository({ singleton: false })
+@Repository()
 export class ObservationRepository extends EntityRepository<Observation, string> {
     declare protected readonly adapter: CompositeSqlAdapter<Observation>;
 

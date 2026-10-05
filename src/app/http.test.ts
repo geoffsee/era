@@ -1,35 +1,10 @@
-import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
+import { useContainer } from "@di-framework/core/container";
 import { expect, test } from "bun:test";
-import { handleRequest } from "./http.ts";
-
-test("injected controllers retain isolated repositories across interleaved requests", async () => {
-    const untouchedAccuracyService = createTestAccuracyService();
-    const firstAccuracyService = createTestAccuracyService();
-    const secondAccuracyService = createTestAccuracyService();
-    const record = (accuracyService: typeof firstAccuracyService, subject: string) =>
-        handleRequest(
-            new Request("https://era.test/v1/predictions", {
-                method: "POST",
-                headers: { "content-type": "application/json", authorization: "Bearer test" },
-                body: JSON.stringify({
-                    predictions: [{ repository: "acme/app", subject, model: "test", metric: "tokens", predicted: 1 }],
-                }),
-            }),
-            { accuracyService, apiToken: "test" },
-        );
-    const responses = await Promise.all([
-        record(firstAccuracyService, "issue:1"),
-        record(secondAccuracyService, "issue:2"),
-        record(firstAccuracyService, "issue:3"),
-    ]);
-    expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
-    expect((await firstAccuracyService.predictions("acme/app")).map((row) => row.subject).sort()).toEqual([
-        "issue:1",
-        "issue:3",
-    ]);
-    expect((await secondAccuracyService.predictions("acme/app")).map((row) => row.subject)).toEqual(["issue:2"]);
-    expect(await untouchedAccuracyService.repositories()).toEqual([]);
-});
+import { env } from "../../test/cloudflare.ts";
+import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
+import { handleRequest, startWorker } from "../../test/helpers/http.ts";
+import worker from "./main.ts";
+import { AccuracyService } from "./services/accuracy-service.ts";
 
 test("HTTP guard challenges credentials before reading a protected request body", async () => {
     const accuracyService = createTestAccuracyService();
@@ -77,4 +52,34 @@ test("HTTP principals preserve repository scopes across interleaved authenticati
     expect(second.status).toBe(200);
     expect((await first).status).toBe(403);
     expect(await accuracyService.repositories()).toEqual(["acme/two"]);
+});
+
+test("the Worker builds its graph from bindings at startup and serves the decorated controllers", async () => {
+    const accuracyService = createTestAccuracyService();
+    env.API_TOKEN = "worker-test";
+    try {
+        await startWorker();
+        const response = await worker.fetch(
+            new Request("https://era.test/v1/predictions", {
+                method: "POST",
+                headers: { authorization: "Bearer worker-test", "content-type": "application/json" },
+                body: JSON.stringify({
+                    predictions: [
+                        { repository: "acme/app", subject: "issue:7", model: "test", metric: "tokens", predicted: 7 },
+                    ],
+                }),
+            }),
+        );
+        expect(response.status).toBe(200);
+        expect((await accuracyService.predictions("acme/app"))[0]?.predicted).toBe(7);
+
+        const container = useContainer();
+        expect(container.resolve(AccuracyService)).toBe(container.resolve(AccuracyService));
+
+        const login = await worker.fetch(new Request("https://era.test/auth/cli/verify"));
+        expect(login.status).toBe(503);
+        await worker.scheduled();
+    } finally {
+        env.API_TOKEN = undefined;
+    }
 });
