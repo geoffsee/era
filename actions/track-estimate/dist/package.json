@@ -1,3 +1,5 @@
 {
+  "name": "@era.js/track-estimate",
+  "private": true,
   "type": "module"
 }

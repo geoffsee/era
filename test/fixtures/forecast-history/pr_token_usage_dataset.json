@@ -1,0 +1,29 @@
+{
+  "metadata": { "repository": "octo/example", "generated_at": "2026-10-01T00:00:00Z" },
+  "orchestration_and_overhead": {
+    "token_usage": {
+      "uncached_input_tokens": 10000,
+      "cache_read_input_tokens": 80000,
+      "output_tokens": 10000,
+      "total_tokens": 100000
+    }
+  },
+  "pull_requests": [
+    {
+      "pr_number": 1,
+      "title": "[E01.01] Synthetic previous task",
+      "state": "MERGED",
+      "created_at": "2026-09-01T00:00:00Z",
+      "merged_at": "2026-09-02T00:00:00Z",
+      "agent_turns_count": 10,
+      "token_usage": {
+        "uncached_input_tokens": 100000,
+        "cache_read_input_tokens": 800000,
+        "total_input_tokens": 900000,
+        "output_tokens": 100000,
+        "thinking_tokens": 40000,
+        "total_tokens": 1000000
+      }
+    }
+  ]
+}

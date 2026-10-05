@@ -1,9 +1,15 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "era-tracker",
-  "main": "src/worker.ts",
+  "main": "src/app/main.ts",
   "compatibility_date": "2026-10-02",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "PUBLIC_API_URL": "https://era-tracker.seemueller.workers.dev",
+    "GITHUB_APP_ID": "5200437",
+    "GITHUB_APP_SLUG": "era-roadmap"
+  },
+  "triggers": { "crons": ["0 * * * *"] },
   "d1_databases": [
     {
       "binding": "DB",

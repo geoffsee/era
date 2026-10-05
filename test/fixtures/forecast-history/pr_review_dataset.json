@@ -1,0 +1,20 @@
+{
+  "metadata": {
+    "repository": "octo/example",
+    "generated_at": "2026-10-01T00:00:00Z",
+    "unattributed_review_tokens": 10000,
+    "followup_tokens": 0,
+    "review_loop_tokens": 1010000,
+    "inherited_review_tokens": 0,
+    "gaps": []
+  },
+  "pull_requests": [
+    {
+      "pr_number": 1,
+      "review_tokens": 1000000,
+      "priced_review_tokens": 1000000,
+      "review_cost_usd": 1,
+      "review_cicd_seconds": 120
+    }
+  ]
+}

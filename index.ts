@@ -1,24 +1,11 @@
-import { estimateRoadmap } from "./src/estimator.ts";
-import { renderEstimate } from "./src/format.ts";
-import { loadRoadmapIssue } from "./src/github-data-repository.ts";
-import { loadHistoricalData } from "./src/historical-data-repository.ts";
+import { runCli } from "./src/cli/cli.ts";
 
-const repository = process.argv[2];
-if (!repository || !/^[^/\s]+\/[^/\s]+$/.test(repository)) {
-    console.error("usage: bun start owner/name");
+const [repository, issue, plan, ...extra] = process.argv.slice(2);
+if (!repository || !/^[^/\s]+\/[^/\s]+$/.test(repository) || extra.length > 0) {
+    console.error("usage: bun start owner/name [roadmap-issue-number] [forecast-plan.json]");
     process.exit(1);
 }
-const [owner, repo] = repository.split("/") as [string, string];
-
-const history = await loadHistoricalData();
-const roadmap = await loadRoadmapIssue(owner, repo);
-const estimate = estimateRoadmap({
-    issueNumber: roadmap.number,
-    issueTitle: roadmap.title,
-    issueBody: roadmap.body,
-    titles: roadmap.titles,
-    history: history.pullRequests,
-    reviewPool: history.reviewPool,
-});
-
-console.log(renderEstimate(estimate, repository));
+const args = ["estimate", "--repository", repository];
+if (issue) args.push("--issue", issue);
+if (plan) args.push("--plan", plan);
+process.exit(await runCli(args));

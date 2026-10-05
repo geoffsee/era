@@ -1,10 +1,30 @@
 {
-  "name": "era",
-  "module": "index.ts",
+  "name": "@era.js/era",
+  "version": "0.1.0",
+  "description": "CLI client for ERA roadmap forecasts and estimate accuracy tracking",
   "type": "module",
-  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geoffsee/era.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist/cli.js",
+    "docs/AUTH.md",
+    "docs/FORECAST-API.md",
+    "docs/ROADMAP-FORMATS.md",
+    "examples/roadmaps",
+    "historical-data/*.schema.json"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "bin": {
-    "era": "src/cli.ts"
+    "era": "dist/cli.js"
   },
   "scripts": {
     "start": "bun index.ts",
@@ -12,24 +32,25 @@
     "typecheck": "tsc --noEmit",
     "format": "biome format .",
     "lint": "biome lint .",
-    "cli": "bun src/cli.ts",
+    "cli": "bun src/cli/cli.ts",
     "api": "wrangler dev",
     "deploy": "wrangler deploy",
-    "postinstall": "git config core.hooksPath .githooks"
+    "build": "bun build src/cli/bin.ts --target node --define 'import.meta.main=false' --outfile dist/cli.js",
+    "verify-package": "bun run build && bun scripts/verify-package.ts",
+    "prepack": "bun run build",
+    "hooks": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@cloudflare/workers-types": "^5.20261002.1",
-    "@types/bun": "latest",
-    "wrangler": "^4.147.0"
-  },
-  "peerDependencies": {
-    "typescript": "^7"
-  },
-  "dependencies": {
+    "@di-framework/auth": "6.0.3",
     "@di-framework/core": "^6.0.3",
     "@di-framework/http": "^6.0.3",
+    "@di-framework/repo": "6.0.3",
     "@terella/action-framework": "^0.0.3",
-    "octokit": "^5.0.5"
+    "@types/bun": "latest",
+    "octokit": "^5.0.5",
+    "typescript": "^7",
+    "wrangler": "^4.147.0"
   }
 }
