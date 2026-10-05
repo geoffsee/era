@@ -1,5 +1,5 @@
 import { json } from "@di-framework/http/portable";
-import { handleAuthRequest } from "../auth/http.ts";
+import { handleAuthRequest } from "../controllers/auth-controller.ts";
 import type { AuthService } from "../auth/service.ts";
 import { authFailure } from "../auth/service.ts";
 import { ForecastInputError } from "../forecast/forecast-service.ts";
