@@ -4,11 +4,37 @@ Estimate work, record predictions, and compare actuals; later runs improve the m
 
 ## Setup
 
-Install [Bun](https://bun.sh), then:
+Install the CLI with Node.js 22 or newer:
+
+```sh
+npm install -g @era.js/era
+era --help
+era login --api https://your-worker --repository owner/name
+```
+
+Use `--no-browser` for headless login. See [authentication setup](docs/AUTH.md) for Worker configuration and token management. The published CLI runs on Node.js and includes its dependencies; Bun is needed only for repository development.
+
+To develop from source, install [Bun](https://bun.sh), then:
 
 ```bash
 bun install
+bun run hooks
 ```
+
+### Publishing the CLI
+
+Update `version` in `package.json`, then run:
+
+```sh
+bun install --frozen-lockfile
+bun test
+bun run typecheck
+bun run verify-package
+npm pack
+npm publish era.js-era-VERSION.tgz --access public
+```
+
+`verify-package` installs the packed artifact with npm into a disposable directory and runs the CLI under Node, including headless login, saved credentials, historical file loading and logout. Only the bundled CLI, documentation and historical JSON Schemas are included. Publishing requires membership in the `era.js` npm organization and npm's configured authentication requirements.
 
 Put two local extracts in `historical-data/` for estimation. They stay untracked; the JSON Schemas next to them are part of the repo. Tests use synthetic fixtures without these files, and automatically enable two additional local-extract checks when both files exist.
 

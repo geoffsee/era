@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { hashSecret } from "@di-framework/auth";
 import { apiUrl, login } from "./auth/cli.ts";
@@ -374,8 +375,11 @@ function defaultIo(): Io {
                     : process.platform === "win32"
                       ? ["rundll32", "url.dll,FileProtocolHandler", url]
                       : ["xdg-open", url];
-            const child = Bun.spawn(command, { stdout: "ignore", stderr: "ignore" });
-            if ((await child.exited) !== 0) throw new Error("Browser unavailable");
+            await new Promise<void>((resolve, reject) => {
+                const child = spawn(command[0]!, command.slice(1), { stdio: "ignore" });
+                child.once("error", reject);
+                child.once("close", (code) => (code === 0 ? resolve() : reject(new Error("Browser unavailable"))));
+            });
         },
     };
 }

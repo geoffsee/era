@@ -1,14 +1,17 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { EMPTY_REVIEW_POOL, epicNumberFromTitle, type HistoricalData, type HistoricalPullRequest } from "./history.ts";
-export { EMPTY_REVIEW_POOL, epicNumberFromTitle, isCalibrationSample } from "./history.ts";
+
 export type {
+    HistoricalAuthorOverhead,
     HistoricalData,
     HistoricalPullRequest,
-    HistoricalAuthorOverhead,
-    UnmatchedReview,
     ReviewPool,
+    UnmatchedReview,
 } from "./history.ts";
+export { EMPTY_REVIEW_POOL, epicNumberFromTitle, isCalibrationSample } from "./history.ts";
 
 type TokenFile = {
     metadata: { repository?: string; total_prs_tracked?: number; generated_at?: string };
@@ -67,18 +70,22 @@ type ReviewFile = {
 };
 
 export async function loadHistoricalPullRequests(
-    directory = join(import.meta.dir, "..", "historical-data"),
+    directory = fileURLToPath(new URL("../historical-data", import.meta.url)),
 ): Promise<HistoricalPullRequest[]> {
     return (await loadHistoricalData(directory)).pullRequests;
 }
 
 export async function loadHistoricalData(
-    directory = join(import.meta.dir, "..", "historical-data"),
+    directory = fileURLToPath(new URL("../historical-data", import.meta.url)),
 ): Promise<HistoricalData> {
-    const tokenFile = (await Bun.file(join(directory, "pr_token_usage_dataset.json")).json()) as TokenFile;
-    const cicdFile = (await Bun.file(join(directory, "pr_cicd_dataset.json")).json()) as CicdFile;
-    const reviewFile = Bun.file(join(directory, "pr_review_dataset.json"));
-    const review = (await reviewFile.exists()) ? ((await reviewFile.json()) as ReviewFile) : null;
+    const tokenFile = JSON.parse(await readFile(join(directory, "pr_token_usage_dataset.json"), "utf8")) as TokenFile;
+    const cicdFile = JSON.parse(await readFile(join(directory, "pr_cicd_dataset.json"), "utf8")) as CicdFile;
+    let review: ReviewFile | null = null;
+    try {
+        review = JSON.parse(await readFile(join(directory, "pr_review_dataset.json"), "utf8")) as ReviewFile;
+    } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
     if (review?.metadata.repository && tokenFile.metadata.repository !== review.metadata.repository) {
         throw new Error("author and review history repository identities do not match");
     }
