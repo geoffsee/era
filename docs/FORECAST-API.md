@@ -63,3 +63,11 @@ Tests exercise authenticated JSON round trips and recording with an in-memory le
 ## Configurable roadmap inputs
 
 Estimate and backtest requests may include `roadmapConfig`. `POST /v1/roadmap-validations` validates a roadmap without history or storage writes. See [roadmap formats](ROADMAP-FORMATS.md) for the configuration, normalized model, calibration mappings and limits. Omitting configuration selects the existing format.
+
+## Service and repository wiring
+
+Tracking routes are instance members of `TrackingController`. Controllers receive services through constructor `@Component` injection; `AccuracyService` and `ForecastService` receive the ledger through the same mechanism. Forecast calculation, backtesting and persistence orchestration live in the service. Request composition forks the DI registrations, so a request cannot replace another request's database or ledger binding.
+
+The ledger uses `@di-framework/repo/portable`: `@Repository` registers data access classes, prediction and observation repositories extend `EntityRepository`, and the memory ledger uses `InMemoryRepository`. A `SqlStorageAdapter` specialization preserves the existing composite primary keys and snake-case columns. Existing D1 tables need no migration. Scoring joins and repository-name aggregation remain explicit SQL queries in the ledger repository.
+
+The composite adapter supports atomic upserts and conditional inserts, but rejects interactive transaction callbacks and inherited compare-and-swap rather than claiming cross-isolate atomicity. Authentication storage retains its existing single-statement consume and compare-and-swap operations.

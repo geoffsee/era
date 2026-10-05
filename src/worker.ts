@@ -1,7 +1,8 @@
+import { createLedger } from "./tracking/composition.ts";
 import { type AuthConfig, AuthService, authFailure } from "./auth/service.ts";
 import { AuthStore } from "./auth/store.ts";
 import { handleRequest } from "./tracking/http.ts";
-import { D1Ledger, type SqlDatabase } from "./tracking/ledger.ts";
+import type { SqlDatabase } from "./tracking/ledger.ts";
 
 export interface Env extends Partial<AuthConfig> {
     DB: SqlDatabase;
@@ -11,7 +12,7 @@ export interface Env extends Partial<AuthConfig> {
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
-        const ledger = new D1Ledger(env.DB);
+        const ledger = createLedger(env.DB);
         await ledger.ensureSchema();
         let auth: AuthService | undefined;
         if (env.PUBLIC_API_URL) {

@@ -1,5 +1,9 @@
-import { Container } from "@di-framework/core/decorators";
+import { Component } from "@di-framework/core/decorators";
+import { EntityRepository, InMemoryRepository, Repository } from "@di-framework/repo/portable";
+import { CompositeSqlAdapter } from "./composite-sql-adapter.ts";
 import type { Observation, Prediction, ScoredPair } from "./model.ts";
+
+export const SQL_DATABASE = "era.sql-database";
 
 export interface Ledger {
     savePredictions(predictions: readonly Prediction[]): Promise<number>;
@@ -10,36 +14,38 @@ export interface Ledger {
     repositories(): Promise<string[]>;
 }
 
-@Container({ singleton: false })
+@Repository({ singleton: false })
 export class MemoryLedger implements Ledger {
-    private readonly predictionRows = new Map<string, Prediction>();
-    private readonly observationRows = new Map<string, Observation>();
+    private readonly predictionRows = new InMemoryRepository<{ id: string; value: Prediction }, string>();
+    private readonly observationRows = new InMemoryRepository<{ id: string; value: Observation }, string>();
 
-    savePredictions(predictions: readonly Prediction[]): Promise<number> {
+    async savePredictions(predictions: readonly Prediction[]): Promise<number> {
         for (const prediction of predictions) {
-            this.predictionRows.set(predictionKey(prediction), prediction);
+            await this.predictionRows.save({ id: predictionKey(prediction), value: prediction });
         }
-        return Promise.resolve(predictions.length);
+        return predictions.length;
     }
 
-    saveObservations(observations: readonly Observation[]): Promise<number> {
+    async saveObservations(observations: readonly Observation[]): Promise<number> {
         for (const observation of observations) {
-            this.observationRows.set(observationKey(observation), observation);
+            await this.observationRows.save({ id: observationKey(observation), value: observation });
         }
-        return Promise.resolve(observations.length);
+        return observations.length;
     }
 
-    pairs(repository: string): Promise<ScoredPair[]> {
+    async pairs(repository: string): Promise<ScoredPair[]> {
         const scored: ScoredPair[] = [];
-        for (const prediction of this.predictionRows.values()) {
+        for (const prediction of (await this.predictionRows.findAll()).map((row) => row.value)) {
             if (prediction.repository !== repository) continue;
-            const observation = this.observationRows.get(
-                observationKey({
-                    repository: prediction.repository,
-                    subject: prediction.subject,
-                    metric: prediction.metric,
-                }),
-            );
+            const observation = (
+                await this.observationRows.findById(
+                    observationKey({
+                        repository: prediction.repository,
+                        subject: prediction.subject,
+                        metric: prediction.metric,
+                    }),
+                )
+            )?.value;
             if (!observation) continue;
             scored.push({
                 repository,
@@ -50,31 +56,39 @@ export class MemoryLedger implements Ledger {
                 actual: observation.actual,
             });
         }
-        return Promise.resolve(scored);
+        return scored;
     }
 
-    predictions(repository: string): Promise<Prediction[]> {
-        return Promise.resolve([...this.predictionRows.values()].filter((row) => row.repository === repository));
+    async predictions(repository: string): Promise<Prediction[]> {
+        return Promise.resolve(
+            [...(await this.predictionRows.findAll()).map((row) => row.value)].filter(
+                (row) => row.repository === repository,
+            ),
+        );
     }
 
-    observations(repository: string): Promise<Observation[]> {
-        return Promise.resolve([...this.observationRows.values()].filter((row) => row.repository === repository));
+    async observations(repository: string): Promise<Observation[]> {
+        return Promise.resolve(
+            [...(await this.observationRows.findAll()).map((row) => row.value)].filter(
+                (row) => row.repository === repository,
+            ),
+        );
     }
 
-    repositories(): Promise<string[]> {
+    async repositories(): Promise<string[]> {
         const names = new Set<string>();
-        for (const row of this.predictionRows.values()) names.add(row.repository);
-        for (const row of this.observationRows.values()) names.add(row.repository);
-        return Promise.resolve([...names].sort());
+        for (const row of (await this.predictionRows.findAll()).map((row) => row.value)) names.add(row.repository);
+        for (const row of (await this.observationRows.findAll()).map((row) => row.value)) names.add(row.repository);
+        return [...names].sort();
     }
 }
 
 function predictionKey(prediction: Pick<Prediction, "repository" | "subject" | "model" | "metric">): string {
-    return `${prediction.repository}\n${prediction.subject}\n${prediction.model}\n${prediction.metric}`;
+    return JSON.stringify([prediction.repository, prediction.subject, prediction.model, prediction.metric]);
 }
 
 function observationKey(observation: Pick<Observation, "repository" | "subject" | "metric">): string {
-    return `${observation.repository}\n${observation.subject}\n${observation.metric}`;
+    return JSON.stringify([observation.repository, observation.subject, observation.metric]);
 }
 
 export const SCHEMA_SQL = [
@@ -108,26 +122,71 @@ export interface SqlDatabase {
     prepare(query: string): SqlStatement;
 }
 
-type PredictionRow = {
-    repository: string;
-    subject: string;
-    model: string;
-    metric: string;
-    predicted: number;
-    recorded_at: string;
-};
+class LedgerEntityRepository<E extends Record<string, unknown>> extends EntityRepository<E, string> {
+    constructor(private readonly sql: CompositeSqlAdapter<E>) {
+        super(sql);
+    }
 
-type ObservationRow = {
-    repository: string;
-    subject: string;
-    metric: string;
-    actual: number;
-    observed_at: string;
-    source: string;
-};
+    forRepository(repository: string): Promise<E[]> {
+        return this.sql.findWhere({ repository });
+    }
+}
 
+@Repository({ singleton: false })
+export class PredictionRepository extends LedgerEntityRepository<Prediction> {
+    constructor(@Component(SQL_DATABASE) db: SqlDatabase) {
+        super(
+            new CompositeSqlAdapter(
+                db,
+                {
+                    table: "predictions",
+                    entityToRow: ({ recordedAt, ...row }) => ({ ...row, recorded_at: recordedAt }),
+                    rowToEntity: (row) => ({
+                        repository: row.repository as string,
+                        subject: row.subject as string,
+                        model: row.model as string,
+                        metric: row.metric as string,
+                        predicted: row.predicted as number,
+                        recordedAt: row.recorded_at as string,
+                    }),
+                },
+                ["repository", "subject", "model", "metric"],
+            ),
+        );
+    }
+}
+
+@Repository({ singleton: false })
+export class ObservationRepository extends LedgerEntityRepository<Observation> {
+    constructor(@Component(SQL_DATABASE) db: SqlDatabase) {
+        super(
+            new CompositeSqlAdapter(
+                db,
+                {
+                    table: "observations",
+                    entityToRow: ({ observedAt, ...row }) => ({ ...row, observed_at: observedAt }),
+                    rowToEntity: (row) => ({
+                        repository: row.repository as string,
+                        subject: row.subject as string,
+                        metric: row.metric as string,
+                        actual: row.actual as number,
+                        source: row.source as string,
+                        observedAt: row.observed_at as string,
+                    }),
+                },
+                ["repository", "subject", "metric"],
+            ),
+        );
+    }
+}
+
+@Repository({ singleton: false })
 export class D1Ledger implements Ledger {
-    constructor(private readonly db: SqlDatabase) {}
+    constructor(
+        @Component(SQL_DATABASE) private readonly db: SqlDatabase,
+        @Component(PredictionRepository) private readonly predictionRows: PredictionRepository,
+        @Component(ObservationRepository) private readonly observationRows: ObservationRepository,
+    ) {}
 
     async ensureSchema(): Promise<void> {
         for (const statement of SCHEMA_SQL) {
@@ -136,46 +195,12 @@ export class D1Ledger implements Ledger {
     }
 
     async savePredictions(predictions: readonly Prediction[]): Promise<number> {
-        for (const prediction of predictions) {
-            await this.db
-                .prepare(
-                    `INSERT INTO predictions (repository, subject, model, metric, predicted, recorded_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT (repository, subject, model, metric)
-                 DO UPDATE SET predicted = excluded.predicted, recorded_at = excluded.recorded_at`,
-                )
-                .bind(
-                    prediction.repository,
-                    prediction.subject,
-                    prediction.model,
-                    prediction.metric,
-                    prediction.predicted,
-                    prediction.recordedAt,
-                )
-                .run();
-        }
+        for (const prediction of predictions) await this.predictionRows.save(prediction);
         return predictions.length;
     }
 
     async saveObservations(observations: readonly Observation[]): Promise<number> {
-        for (const observation of observations) {
-            await this.db
-                .prepare(
-                    `INSERT INTO observations (repository, subject, metric, actual, observed_at, source)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT (repository, subject, metric)
-                 DO UPDATE SET actual = excluded.actual, observed_at = excluded.observed_at, source = excluded.source`,
-                )
-                .bind(
-                    observation.repository,
-                    observation.subject,
-                    observation.metric,
-                    observation.actual,
-                    observation.observedAt,
-                    observation.source,
-                )
-                .run();
-        }
+        for (const observation of observations) await this.observationRows.save(observation);
         return observations.length;
     }
 
@@ -193,40 +218,12 @@ export class D1Ledger implements Ledger {
         return result.results;
     }
 
-    async predictions(repository: string): Promise<Prediction[]> {
-        const result = await this.db
-            .prepare(
-                `SELECT repository, subject, model, metric, predicted, recorded_at
-             FROM predictions WHERE repository = ?1`,
-            )
-            .bind(repository)
-            .all<PredictionRow>();
-        return result.results.map((row) => ({
-            repository: row.repository,
-            subject: row.subject,
-            model: row.model,
-            metric: row.metric,
-            predicted: row.predicted,
-            recordedAt: row.recorded_at,
-        }));
+    predictions(repository: string): Promise<Prediction[]> {
+        return this.predictionRows.forRepository(repository);
     }
 
-    async observations(repository: string): Promise<Observation[]> {
-        const result = await this.db
-            .prepare(
-                `SELECT repository, subject, metric, actual, observed_at, source
-             FROM observations WHERE repository = ?1`,
-            )
-            .bind(repository)
-            .all<ObservationRow>();
-        return result.results.map((row) => ({
-            repository: row.repository,
-            subject: row.subject,
-            metric: row.metric,
-            actual: row.actual,
-            observedAt: row.observed_at,
-            source: row.source,
-        }));
+    observations(repository: string): Promise<Observation[]> {
+        return this.observationRows.forRepository(repository);
     }
 
     async repositories(): Promise<string[]> {

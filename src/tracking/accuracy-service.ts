@@ -15,8 +15,7 @@ export const LEDGER = "ledger";
 
 @Container({ singleton: false })
 export class AccuracyService {
-    @Component(LEDGER)
-    private ledger!: Ledger;
+    constructor(@Component(LEDGER) private readonly ledger: Ledger) {}
 
     async recordPredictions(inputs: readonly unknown[], now = new Date().toISOString()): Promise<number> {
         return this.ledger.savePredictions(inputs.map((input) => parsePrediction(input, now)));

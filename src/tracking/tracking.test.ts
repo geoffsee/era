@@ -1,3 +1,4 @@
+import { createLedger } from "./composition.ts";
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { useContainer } from "@di-framework/core/container";
@@ -6,7 +7,7 @@ import { AccuracyService, LEDGER } from "./accuracy-service.ts";
 import { tokenBacktest } from "./backtest.ts";
 import { handleRequest } from "./http.ts";
 import { BunSqlDatabase } from "./sqlite.ts";
-import { D1Ledger, MemoryLedger } from "./ledger.ts";
+import { MemoryLedger } from "./ledger.ts";
 import type { HistoricalPullRequest } from "../historical-data-repository.ts";
 
 const TOKEN = "test-token";
@@ -61,7 +62,7 @@ describe("accuracy service", () => {
 
 describe("sqlite ledger", () => {
     test("upserts predictions and joins them to observations", async () => {
-        const ledger = new D1Ledger(new BunSqlDatabase(new Database(":memory:")));
+        const ledger = createLedger(new BunSqlDatabase(new Database(":memory:")));
         await ledger.ensureSchema();
         await ledger.savePredictions([
             {
