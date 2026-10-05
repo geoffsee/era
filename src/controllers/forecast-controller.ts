@@ -1,7 +1,7 @@
 import { Component } from "@di-framework/core/decorators";
 import { Controller } from "@di-framework/http/portable";
-import { ForecastService } from "../forecast/forecast-application-service.ts";
-import { ForecastInputError } from "../forecast/forecast-service.ts";
+import { ForecastService } from "../services/forecast-application-service.ts";
+import { ForecastInputError } from "../services/forecast-service.ts";
 import { HttpError, type Identity } from "../auth/access.ts";
 
 @Controller({ singleton: false })

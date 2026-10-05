@@ -1,5 +1,5 @@
 import { Component, Container } from "@di-framework/core/decorators";
-import type { Ledger } from "./ledger.ts";
+import type { Ledger } from "../tracking/ledger.ts";
 import {
     assertFinite,
     assertRepository,
@@ -8,8 +8,8 @@ import {
     type AccuracyReport,
     type Observation,
     type Prediction,
-} from "./model.ts";
-import { scoreRepository } from "./score.ts";
+} from "../tracking/model.ts";
+import { scoreRepository } from "../tracking/score.ts";
 
 export const LEDGER = "ledger";
 

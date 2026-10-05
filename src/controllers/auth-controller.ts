@@ -1,6 +1,6 @@
 import { checkRequestOrigin } from "@di-framework/auth";
 import { authenticate, HttpError } from "../auth/access.ts";
-import { type AuthService, authFailure } from "../auth/service.ts";
+import { type AuthService, authFailure } from "../services/auth-service.ts";
 import type { RepositoryKey } from "../auth/store.ts";
 
 const escapeHtml = (value: string) =>

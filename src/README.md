@@ -3,10 +3,11 @@
 | Directory | Purpose |
 | --- | --- |
 | `app/` | Worker entry point, HTTP dispatch, and dependency composition |
+| `services/` | Authentication, forecasting, and accuracy application services |
 | `controllers/` | Authentication, forecast, and tracking HTTP handlers |
 | `auth/` | GitHub login, credentials, scoped access, OIDC, and authentication storage |
 | `cli/` | Installed executable and command orchestration |
-| `forecast/` | Estimation, cost accounting, calibration validation, forecast plans, reports, and forecast services |
+| `forecast/` | Estimation, cost accounting, calibration validation, forecast plans, and reports |
 | `roadmap/` | Roadmap parsing, configurable formats, normalization, and dependency graphs |
 | `history/` | Historical usage model and dataset loading |
 | `usage/` | Author-session and review usage extraction and attribution |

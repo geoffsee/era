@@ -17,8 +17,8 @@ import {
     toSecretBytes,
 } from "@di-framework/auth";
 import { githubProvider, type OAuthTokens, oauthClient } from "@di-framework/auth/oauth";
-import { HttpError, type Identity } from "./access.ts";
-import type { AuthStore, Grant, RepositoryKey } from "./store.ts";
+import { HttpError, type Identity } from "../auth/access.ts";
+import type { AuthStore, Grant, RepositoryKey } from "../auth/store.ts";
 
 export interface AuthConfig {
     PUBLIC_API_URL: string;

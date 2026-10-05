@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../cli/cli.ts";
-import { calculateForecast, parseForecastRequest } from "../forecast/forecast-service.ts";
+import { calculateForecast, parseForecastRequest } from "../services/forecast-service.ts";
 import { loadHistoricalData } from "../history/historical-data-repository.ts";
 import { parseRoadmapConfig, type RoadmapConfig, resolveRoadmap, roadmapHistory } from "./roadmap-format.ts";
 import { handleRequest } from "../app/http.ts";

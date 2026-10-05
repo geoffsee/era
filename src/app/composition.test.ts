@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { useContainer } from "@di-framework/core/container";
-import { AccuracyService, LEDGER } from "../tracking/accuracy-service.ts";
+import { AccuracyService, LEDGER } from "../services/accuracy-service.ts";
 import { createControllers } from "./composition.ts";
 import { MemoryLedger } from "../tracking/ledger.ts";
 

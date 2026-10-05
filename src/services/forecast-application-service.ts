@@ -1,5 +1,5 @@
 import { Component, Container } from "@di-framework/core/decorators";
-import { LEDGER } from "../tracking/accuracy-service.ts";
+import { LEDGER } from "./accuracy-service.ts";
 import {
     assertFiniteResult,
     calculateForecast,

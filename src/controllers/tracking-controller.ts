@@ -9,7 +9,7 @@ import {
     type ResponseSpec,
     TypedRouter,
 } from "@di-framework/http/portable";
-import { AccuracyService } from "../tracking/accuracy-service.ts";
+import { AccuracyService } from "../services/accuracy-service.ts";
 import { assertAccess, HttpError, type Identity } from "../auth/access.ts";
 import type { AccuracyReport, Observation, Prediction } from "../tracking/model.ts";
 

@@ -9,7 +9,7 @@ import { handleRequest } from "../app/http.ts";
 import { MemoryLedger } from "../tracking/ledger.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 import { credentialId, FileCredentialCache, MemoryCredentialCache } from "./credentials.ts";
-import { type AuthConfig, AuthService, type LoginFlow } from "./service.ts";
+import { type AuthConfig, AuthService, type LoginFlow } from "../services/auth-service.ts";
 import { AuthStore, type RepositoryKey } from "./store.ts";
 
 const config: AuthConfig = {
