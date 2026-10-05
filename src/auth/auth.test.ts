@@ -102,6 +102,7 @@ function fixture() {
             .map((value) => value.split(";")[0])
             .join("; ");
         const approve = await request("/auth/cli/approve", { headers: { cookie: sessionCookie } });
+        expect(approve.headers.get("content-security-policy")).toContain("form-action 'self';");
         const csrf = (await approve.text()).match(/name="csrf" value="([^"]+)"/)![1]!;
         const decide = (decision = "approve", token = csrf) =>
             request("/auth/cli/approve", {
@@ -140,6 +141,9 @@ function fixture() {
 
 test("GitHub PKCE login issues a scoped key once and stores only encrypted provider credentials and key hashes", async () => {
     const f = fixture();
+    expect((await f.request("/auth/cli/verify")).headers.get("content-security-policy")).toContain(
+        "form-action 'self' https://github.com;",
+    );
     const begin = await f.start();
     expect((await f.poll(begin.deviceCode)).status).toBe(202);
     expect((await f.poll(begin.deviceCode)).status).toBe(429);

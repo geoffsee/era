@@ -8,7 +8,7 @@ const escapeHtml = (value: string) =>
         /[&<>"']/g,
         (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
     );
-function page(title: string, body: string, status = 200): Response {
+function page(title: string, body: string, status = 200, githubRedirect = false): Response {
     return new Response(
         `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`,
         {
@@ -17,8 +17,7 @@ function page(title: string, body: string, status = 200): Response {
                 "content-type": "text/html; charset=utf-8",
                 "cache-control": "no-store",
                 "referrer-policy": "no-referrer",
-                "content-security-policy":
-                    "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+                "content-security-policy": `default-src 'none'; form-action 'self'${githubRedirect ? " https://github.com" : ""}; frame-ancestors 'none'; base-uri 'none'`,
                 "x-content-type-options": "nosniff",
             },
         },
@@ -105,6 +104,8 @@ export async function handleAuthRequest(
             return page(
                 "Sign in to ERA",
                 '<p>Enter the code displayed by your ERA CLI. Only approve a login you started yourself.</p><form method="post" action="/auth/github/start"><label>CLI code <input name="code" required maxlength="11" autocomplete="off"></label><button>Continue with GitHub</button></form>',
+                200,
+                true,
             );
         if (path === "/auth/github/start" && request.method === "POST") {
             if (!checkRequestOrigin(request, { allowedOrigins: [service.origin], requireOriginHeader: true }))
