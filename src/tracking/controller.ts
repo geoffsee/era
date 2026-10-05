@@ -10,7 +10,7 @@ import {
     TypedRouter,
 } from "@di-framework/http/portable";
 import { AccuracyService } from "./accuracy-service.ts";
-import { assertAccess, HttpError, type Identity } from "./auth.ts";
+import { assertAccess, HttpError, type Identity } from "../auth/access.ts";
 import type { AccuracyReport, Observation, Prediction } from "./model.ts";
 
 @Controller({ singleton: false })

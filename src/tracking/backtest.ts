@@ -1,6 +1,6 @@
-import { isCalibrationSample, type HistoricalPullRequest } from "../history.ts";
+import { isCalibrationSample, type HistoricalPullRequest } from "../history/history.ts";
 import type { Observation, Prediction } from "./model.ts";
-import { median } from "../theory.ts";
+import { median } from "../forecast/theory.ts";
 
 /** Leave-one-out token median, the calibration forecast a new child receives. */
 export function tokenBacktest(

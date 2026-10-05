@@ -1,5 +1,5 @@
 import type { AccuracyReport, ScoredPair } from "./model.ts";
-import { meanAbsoluteError, meanMagnitudeRelativeError, median, predictionWithin } from "../theory.ts";
+import { meanAbsoluteError, meanMagnitudeRelativeError, median, predictionWithin } from "../forecast/theory.ts";
 
 export function scoreRepository(repository: string, pairs: readonly ScoredPair[]): AccuracyReport[] {
     const groups = new Map<string, ScoredPair[]>();

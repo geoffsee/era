@@ -6,7 +6,7 @@ import type {
     StateEntry,
     StateStore,
 } from "@di-framework/auth";
-import type { SqlDatabase } from "../tracking/ledger.ts";
+import type { SqlDatabase } from "../persistence/database.ts";
 
 export type Grant = { repository: string; repositoryId: number; installationId: number };
 export type RepositoryKey = ApiKeyCredential & Grant;

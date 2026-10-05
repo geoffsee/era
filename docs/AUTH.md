@@ -5,11 +5,11 @@ The hosted tracker uses [ERA Roadmap](https://github.com/apps/era-roadmap), owne
 Users obtain a repository-scoped ERA token with GitHub login:
 
 ```sh
-bun src/cli.ts login --api https://era-tracker.seemueller.workers.dev --repository owner/name
-bun src/cli.ts accuracy --repository owner/name
-bun src/cli.ts tokens
-bun src/cli.ts revoke-token --id TOKEN_ID
-bun src/cli.ts logout
+bun src/cli/cli.ts login --api https://era-tracker.seemueller.workers.dev --repository owner/name
+bun src/cli/cli.ts accuracy --repository owner/name
+bun src/cli/cli.ts tokens
+bun src/cli/cli.ts revoke-token --id TOKEN_ID
+bun src/cli/cli.ts logout
 ```
 
 The CLI opens a browser and prints a verification URL and code. Enter the code, sign in to GitHub, and confirm the account, repository and matching terminal code before approving. Over SSH or on a headless machine, open the printed URL on another machine; `--no-browser` skips automatic browser launch. The CLI polls every five seconds for up to ten minutes and saves the resulting token automatically. Denial, expiry and failed login preserve previously saved credentials.

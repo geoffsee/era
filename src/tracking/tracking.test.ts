@@ -1,14 +1,14 @@
-import { createLedger } from "./composition.ts";
+import { createLedger } from "../app/composition.ts";
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { useContainer } from "@di-framework/core/container";
-import { runCli } from "../cli.ts";
+import { runCli } from "../cli/cli.ts";
 import { AccuracyService, LEDGER } from "./accuracy-service.ts";
 import { tokenBacktest } from "./backtest.ts";
-import { handleRequest } from "./http.ts";
-import { BunSqlDatabase } from "./sqlite.ts";
+import { handleRequest } from "../app/http.ts";
+import { BunSqlDatabase } from "../persistence/sqlite.ts";
 import { MemoryLedger } from "./ledger.ts";
-import type { HistoricalPullRequest } from "../historical-data-repository.ts";
+import type { HistoricalPullRequest } from "../history/historical-data-repository.ts";
 
 const TOKEN = "test-token";
 

@@ -1,4 +1,4 @@
-import { runCli } from "./src/cli.ts";
+import { runCli } from "./src/cli/cli.ts";
 
 const [repository, issue, plan, ...extra] = process.argv.slice(2);
 if (!repository || !/^[^/\s]+\/[^/\s]+$/.test(repository) || extra.length > 0) {

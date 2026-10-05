@@ -1,9 +1,9 @@
 import { Component } from "@di-framework/core/decorators";
 import { InMemoryRepository, Repository } from "@di-framework/repo/portable";
-import { SqliteRepository } from "./sqlite-repository.ts";
+import { SqliteRepository } from "../persistence/sqlite-repository.ts";
 import type { Observation, Prediction, ScoredPair } from "./model.ts";
 
-export const SQL_DATABASE = "era.sql-database";
+import { SQL_DATABASE, type SqlDatabase } from "../persistence/database.ts";
 
 export interface Ledger {
     savePredictions(predictions: readonly Prediction[]): Promise<number>;
@@ -111,16 +111,6 @@ export const SCHEMA_SQL = [
         PRIMARY KEY (repository, subject, metric)
     )`,
 ] as const;
-
-export interface SqlStatement {
-    bind(...values: Array<string | number | null>): SqlStatement;
-    run(): Promise<unknown>;
-    all<T>(): Promise<{ results: T[] }>;
-}
-
-export interface SqlDatabase {
-    prepare(query: string): SqlStatement;
-}
 
 @Repository({ singleton: false })
 export class PredictionRepository extends SqliteRepository<Prediction> {

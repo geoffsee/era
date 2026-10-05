@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { createLedger } from "./composition.ts";
-import { CompositeSqlAdapter } from "./composite-sql-adapter.ts";
+import { createLedger } from "../app/composition.ts";
+import { CompositeSqlAdapter } from "../persistence/composite-sql-adapter.ts";
 import { PredictionRepository, SCHEMA_SQL } from "./ledger.ts";
-import { SqliteRepository } from "./sqlite-repository.ts";
-import { BunSqlDatabase } from "./sqlite.ts";
+import { SqliteRepository } from "../persistence/sqlite-repository.ts";
+import { BunSqlDatabase } from "../persistence/sqlite.ts";
 
 function fixture() {
     const database = new Database(":memory:");

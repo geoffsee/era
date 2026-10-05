@@ -48,7 +48,7 @@ The files join on `pr_number`. Build the token file from Antigravity CLI (`agy`)
 `pr_review_dataset.json` is optional. Build it from local Codex sessions. Missing review joins are evidence gaps, not observations of zero review effort. Schema: [`historical-data/pr_review_dataset.schema.json`](historical-data/pr_review_dataset.schema.json).
 
 ```bash
-bun src/extract-codex-review.ts owner/name
+bun src/usage/extract-codex-review.ts owner/name
 ```
 
 The extractor reads `~/.codex/state_*.sqlite` and the session rollouts for that `owner/name`. A session counts when its title or first message asks for a pull-request review, or asks to address review comments. Spawned subagents inherit that role. Tokens are the last thread usage record. Pull request numbers come from the request (`PR #N`, `**#N**`, or a pull URL) and from `gh pr` commands the session actually ran. A session that names several pull requests is split evenly across them. Review CI is the wall-clock span of completed GitHub Actions runs on earlier SHAs of that pull request's head branch that start during one of those sessions. The final head SHA stays in the CI file when that file already has the pull request. `gh` has to be authenticated for the CI pass. If it is not, the token rows are still written and the gap is recorded on the file.
@@ -60,7 +60,7 @@ When a reviewed pull request is also in the author-token extract, the forecast u
 Build both extracts with:
 
 ```bash
-bun src/extract-agy-usage.ts owner/name
+bun src/usage/extract-agy-usage.ts owner/name
 ```
 
 The command reads `~/.gemini/antigravity-cli`. A conversation counts when its workspace path contains the repository name, and so does every subagent it spawned. Each model step is attributed to the pull request selected by a `gh pr` command, a `git checkout` of that pull request's head branch, the `On branch` line printed by those commands, or a subagent task that names exactly one pull request. Steps before the first of those boundaries stay in `orchestration_and_overhead`. A pull request whose head SHA is already in `pr_cicd_dataset.json` keeps that CI row. A new head SHA is read from the GitHub API. `gh` has to be authenticated.
@@ -180,7 +180,7 @@ bun start owner/name
 The read-only estimate command can use a saved snapshot without GitHub access. It still calls the authenticated Worker and requires API configuration:
 
 ```bash
-bun src/cli.ts estimate --repository geoffsee/rubix-kube --issue 359 \
+bun src/cli/cli.ts estimate --repository geoffsee/rubix-kube --issue 359 \
   --body test/fixtures/roadmap-359.md --titles test/fixtures/roadmap-359-titles.json \
   --history historical-data --plan test/fixtures/roadmap-359-central-plan.json
 ```
@@ -200,8 +200,8 @@ Rows are keyed by `owner/name`, a subject such as `issue:4` or `pr:12`, a model,
 Users sign in through GitHub and receive a repository-scoped ERA token:
 
 ```bash
-bun src/cli.ts login --api https://era-tracker.seemueller.workers.dev --repository owner/name
-bun src/cli.ts accuracy --repository owner/name
+bun src/cli/cli.ts login --api https://era-tracker.seemueller.workers.dev --repository owner/name
+bun src/cli/cli.ts accuracy --repository owner/name
 ```
 
 The CLI saves the credential automatically. Login works from SSH/headless terminals using the printed verification URL and code. GitHub write access and a selected ERA GitHub App installation are required. Keys expire after 30 days; `tokens`, `revoke-token` and `logout` manage them. See [authentication and operator setup](docs/AUTH.md) for the required Worker configuration and migration.
@@ -212,20 +212,20 @@ Explicit API credentials override saved login. The operator can set both, or pas
 export ERA_API_URL=https://era-tracker.seemueller.workers.dev
 export ERA_API_TOKEN=...
 
-bun src/cli.ts predictions \
+bun src/cli/cli.ts predictions \
   --repository owner/name \
   --subject issue:1 \
   --model token-threshold \
   --metric tokens \
   --value 100
 
-bun src/cli.ts observations \
+bun src/cli/cli.ts observations \
   --repository owner/name \
   --subject issue:1 \
   --metric tokens \
   --value 120
 
-bun src/cli.ts accuracy --repository owner/name
+bun src/cli/cli.ts accuracy --repository owner/name
 ```
 
 The operator's `ERA_API_TOKEN` is the matching Worker `API_TOKEN` secret. Normal user keys are issued through login.
@@ -235,13 +235,13 @@ The operator's `ERA_API_TOKEN` is the matching Worker `API_TOKEN` secret. Normal
 Other commands:
 
 ```bash
-bun src/cli.ts repositories
-bun src/cli.ts ingest-history --repository owner/name --dir historical-data
-bun src/cli.ts backtest --repository owner/name --dir historical-data
-bun src/cli.ts record-estimate --repository owner/name
+bun src/cli/cli.ts repositories
+bun src/cli/cli.ts ingest-history --repository owner/name --dir historical-data
+bun src/cli/cli.ts backtest --repository owner/name --dir historical-data
+bun src/cli/cli.ts record-estimate --repository owner/name
 ```
 
-`record-estimate` reads the open roadmap issue for `owner/name` and stores one prediction per child issue. Offline, pass `--body roadmap.md --titles titles.json --history historical-data`. `titles.json` maps issue numbers to titles. `bun src/cli.ts help` lists the flags.
+`record-estimate` reads the open roadmap issue for `owner/name` and stores one prediction per child issue. Offline, pass `--body roadmap.md --titles titles.json --history historical-data`. `titles.json` maps issue numbers to titles. `bun src/cli/cli.ts help` lists the flags.
 
 ## GitHub Action
 

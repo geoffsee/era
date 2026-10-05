@@ -1,5 +1,5 @@
 import { checkRequestOrigin } from "@di-framework/auth";
-import { authenticate, HttpError } from "../tracking/auth.ts";
+import { authenticate, HttpError } from "./access.ts";
 import { type AuthService, authFailure } from "./service.ts";
 import type { RepositoryKey } from "./store.ts";
 

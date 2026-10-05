@@ -117,4 +117,4 @@ An item with `"calibrationGroup": "storage"` can use the storage PR baseline. Wi
 
 The endpoints enforce existing repository authentication and a 2 MiB request limit. Custom models allow up to 1,000 items, 1,000 milestones and 10,000 dependency pairs after expansion, with a bounded traversal budget. Configuration is data: uploaded executable parsers and regex programs are unsupported. Format and validation failures return 400; missing or foreign credentials retain the existing 401/403 behavior.
 
-Runnable examples are in `examples/roadmaps/`. During development, substitute `bun src/cli.ts` for `era`; the installed command needs a CLI release containing these options and a Worker deployment containing the validation endpoint.
+Runnable examples are in `examples/roadmaps/`. During development, substitute `bun src/cli/cli.ts` for `era`; the installed command needs a CLI release containing these options and a Worker deployment containing the validation endpoint.
