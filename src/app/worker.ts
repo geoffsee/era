@@ -1,10 +1,10 @@
-import { ensureForecastSchema } from "../persistence/schema.ts";
+import { ensureForecastSchema } from "../core/persistence/schema.ts";
 import { useContainer } from "@di-framework/core/container";
-import { AccuracyService } from "../services/accuracy-service.ts";
-import { type AuthConfig, AuthService, authFailure } from "../services/auth-service.ts";
-import { AuthStore } from "../repositories/auth-store.ts";
+import { AccuracyService } from "./services/accuracy-service.ts";
+import { type AuthConfig, AuthService, authFailure } from "./services/auth-service.ts";
+import { AuthStore } from "./repositories/auth-store.ts";
 import { handleRequest } from "./http.ts";
-import { SQL_DATABASE, type SqlDatabase } from "../persistence/database.ts";
+import { SQL_DATABASE, type SqlDatabase } from "../core/persistence/database.ts";
 
 export interface Env extends Partial<AuthConfig> {
     DB: SqlDatabase;

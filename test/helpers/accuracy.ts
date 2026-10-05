@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
 import { afterEach } from "bun:test";
 import { useContainer } from "@di-framework/core/container";
-import { AccuracyService } from "../../src/services/accuracy-service.ts";
-import { SQL_DATABASE, type SqlDatabase } from "../../src/persistence/database.ts";
-import { SCHEMA_SQL } from "../../src/persistence/schema.ts";
-import { BunSqlDatabase } from "../../src/persistence/sqlite.ts";
+import { AccuracyService } from "../../src/app/services/accuracy-service.ts";
+import { SQL_DATABASE, type SqlDatabase } from "../../src/core/persistence/database.ts";
+import { SCHEMA_SQL } from "../../src/core/persistence/schema.ts";
+import { BunSqlDatabase } from "../../src/core/persistence/sqlite.ts";
 
 const databases: Database[] = [];
 afterEach(() => {

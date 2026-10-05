@@ -1,14 +1,14 @@
 import { applyAuthHeaders, requireAuthExcept, withAuthErrors } from "@di-framework/auth/http";
 import { json, TypedRouter } from "@di-framework/http/portable";
-import { AuthController } from "../controllers/auth-controller.ts";
-import { AuthService } from "../services/auth-service.ts";
-import { authFailure } from "../services/auth-service.ts";
-import { ForecastInputError } from "../services/forecast-service.ts";
-import { eraStrategy, HttpError } from "../auth/access.ts";
+import { AuthController } from "./controllers/auth-controller.ts";
+import { AuthService } from "./services/auth-service.ts";
+import { authFailure } from "./services/auth-service.ts";
+import { ForecastInputError } from "./services/forecast-service.ts";
+import { eraStrategy, HttpError } from "../core/auth/access.ts";
 import { useContainer } from "@di-framework/core/container";
-import { ForecastController } from "../controllers/forecast-controller.ts";
-import { TrackingController } from "../controllers/tracking-controller.ts";
-import { AccuracyService } from "../services/accuracy-service.ts";
+import { ForecastController } from "./controllers/forecast-controller.ts";
+import { TrackingController } from "./controllers/tracking-controller.ts";
+import { AccuracyService } from "./services/accuracy-service.ts";
 
 export type TrackerDeps = {
     accuracyService: AccuracyService;
