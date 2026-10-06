@@ -2,7 +2,7 @@
 
 ERA can read your own Markdown table or a normalized JSON export. The Worker converts the source into work items and execution dependencies before forecasting. The CLI sends the source and declarative configuration; the API uses the same adapters.
 
-Create `era.config.json` in your current working directory, or pass `--config path/to/config.json`. An explicitly selected file overrides discovery. Configuration errors fail visibly. With no configuration, ERA uses the existing `legacy` preset, preserving its lane/gate tables, title conventions, completed-lane handling and forecasts.
+Create `era.config.json` in your current working directory, or pass `--config path/to/config.json`. An explicitly selected file overrides discovery. Configuration errors fail visibly. With no configuration, ERA uses the existing `legacy` preset, preserving its lane/gate tables, title conventions, completed-lane handling and forecasts. The same file may carry an `inference` section for [model-inferred estimates](FORECAST-API.md#in-context-inference); either section may appear alone.
 
 ```json
 {

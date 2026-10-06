@@ -3,8 +3,12 @@ import { expect, test } from "bun:test";
 import { env } from "../../test/cloudflare.ts";
 import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { handleRequest, startWorker } from "../../test/helpers/http.ts";
+import type { ForecastResponse } from "../core/forecast/forecast-contract.ts";
 import worker from "./main.ts";
+import { loadHistoricalData } from "./repositories/historical-data-repository.ts";
 import { AccuracyService } from "./services/accuracy-service.ts";
+
+const history = await loadHistoricalData(new URL("../../test/fixtures/forecast-history", import.meta.url).pathname);
 
 test("HTTP guard challenges credentials before reading a protected request body", async () => {
     const accuracyService = createTestAccuracyService();
@@ -81,5 +85,61 @@ test("the Worker builds its graph from bindings at startup and serves the decora
         await worker.scheduled();
     } finally {
         env.API_TOKEN = undefined;
+    }
+});
+
+test("a Workers AI binding serves in-context inference when no provider key is bound", async () => {
+    const accuracyService = createTestAccuracyService();
+    const runs: Array<{ model: string; inputs: Record<string, unknown> }> = [];
+    env.API_TOKEN = "worker-test";
+    env.AI = {
+        run: async (model: string, inputs: Record<string, unknown>) => {
+            runs.push({ model, inputs });
+            return {
+                response: JSON.stringify({ items: [{ issue: 2, calendarDays: 2, rationale: "Like PR #1." }] }),
+                usage: { prompt_tokens: 120, completion_tokens: 30 },
+            };
+        },
+    };
+    try {
+        await startWorker();
+        const response = await worker.fetch(
+            new Request("https://era.test/v1/estimates", {
+                method: "POST",
+                headers: { authorization: "Bearer worker-test", "content-type": "application/json" },
+                body: JSON.stringify({
+                    repository: "octo/example",
+                    roadmap: {
+                        number: 0,
+                        title: "Roadmap",
+                        body: "| T01 next | ready | — | #2 | |\n| G01 start | #2 | completion |",
+                        titles: { "2": "Next task" },
+                    },
+                    history,
+                    inference: {
+                        fields: [
+                            {
+                                name: "calendarDays",
+                                description: "Working days to merge",
+                                type: "number",
+                                unit: "days",
+                            },
+                        ],
+                    },
+                }),
+            }),
+        );
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as ForecastResponse;
+        expect(body.inferred?.model).toBe("@cf/meta/llama-3.1-8b-instruct");
+        expect(body.inferred?.items).toEqual([{ issue: 2, values: { calendarDays: 2 }, rationale: "Like PR #1." }]);
+        expect(body.inferred?.usage).toEqual({ promptTokens: 120, completionTokens: 30, totalTokens: 150, calls: 1 });
+        expect(runs).toHaveLength(1);
+        expect(runs[0]!.model).toBe("@cf/meta/llama-3.1-8b-instruct");
+        expect(JSON.stringify(runs[0]!.inputs.messages)).toContain("#2 Next task | lane T01");
+        expect(await accuracyService.repositories()).toEqual([]);
+    } finally {
+        env.API_TOKEN = undefined;
+        env.AI = undefined;
     }
 });

@@ -1,5 +1,6 @@
 import type { Calibration, RoadmapEstimate } from "./estimator.ts";
 import type { ForecastPlan } from "./forecast-plan.ts";
+import type { InferenceConfig, InferredEstimates } from "./inference.ts";
 import type { HistoricalData } from "../history/history.ts";
 import type { RoadmapConfig } from "../roadmap/roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "../tracking/model.ts";
@@ -12,10 +13,14 @@ export type ForecastRequest = {
         body: string;
         titles?: Record<string, string>;
         states?: Record<string, string>;
+        /** Child issue bodies for in-context inference; the Worker truncates each one. */
+        descriptions?: Record<string, string>;
     };
     history: HistoricalData;
     roadmapConfig?: RoadmapConfig;
     plan?: ForecastPlan;
+    /** Additional per-item estimates for the Worker's model to infer in context. */
+    inference?: InferenceConfig;
     record?: boolean;
 };
 
@@ -29,6 +34,8 @@ export type ForecastResponse = {
     estimate: JsonEstimate;
     report: string;
     predictions: Prediction[];
+    /** Present when the request configured inference fields. */
+    inferred?: InferredEstimates;
     stored: number;
 };
 

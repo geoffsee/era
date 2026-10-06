@@ -191,6 +191,26 @@ Prices apply the observed fresh/cache-read/output mix under a dated future model
 
 The report also compares repository-median and epic-median token baselines chronologically: training includes only PRs merged before the target PR's creation, with at least three training samples and at least three epic peers before using an epic median. Missing dates and warmup exclusions are counted. This is retrospective evaluation of final extracts; it does not validate named comparable-PR plans, actual dollars, or immutable prospective predictions. The reconstructed story-point scores are labeled separately. Freeze prospective forecasts before work and collect actual billing and human-effort receipts to validate delivery cost.
 
+### Infer additional estimates in context
+
+The deterministic models only estimate what the history measures. An `inference` section in `era.config.json` names extra per-item quantities, and the Worker's configured Claude model infers them from the roadmap text, the historical pull requests and the deterministic estimate it is extending:
+
+```json
+{
+  "version": 1,
+  "inference": {
+    "fields": [
+      { "name": "calendarDays", "type": "number", "unit": "days", "minimum": 0,
+        "description": "Working days from the first commit to merge" },
+      { "name": "risk", "type": "enum", "values": ["low", "medium", "high"],
+        "description": "Likelihood that the item slips or is split" }
+    ]
+  }
+}
+```
+
+`era estimate` then prints an "In-context inferred estimates" section with one row per remaining item and the model's rationale. The Worker uses Claude when its `ANTHROPIC_API_KEY` secret is set and its Workers AI binding otherwise; the report and the recorded model name say which. `era record-estimate` records the numeric fields under model `inference:<model id>`, so `era accuracy` scores the model's estimates against observations exactly like the deterministic ones. Saved snapshots can pass issue bodies with `--descriptions bodies.json`. The Worker needs its `ANTHROPIC_API_KEY` secret; see [the API contract](docs/FORECAST-API.md#in-context-inference).
+
 ## Track accuracy
 
 Forecast operations use `POST /v1/estimates`: `estimate` calculates without saving forecast records, while `record-estimate` asks the Worker to calculate and record its generated predictions. The backtest command uses `POST /v1/backtests` to calculate and record on the Worker. Both endpoints accept normalized history plus repository identity; the estimate endpoint also accepts the roadmap snapshot and optional plan. No GitHub token or filesystem path is sent to the Worker. See [the API contract](docs/FORECAST-API.md).
@@ -279,7 +299,7 @@ bun run api
 
 For local forecast testing, set `ERA_API_URL=http://localhost:8787` and `ERA_API_TOKEN` to the local `API_TOKEN`, then run the same CLI commands. The Worker uses its configured D1 binding for recorded predictions and observations; calculation-only requests do not store the supplied snapshot or history. Estimation requires the Worker version with `/v1/estimates`, so deploy that version before using the new CLI against an existing hosted tracker.
 
-`bun run deploy` publishes the Worker in `wrangler.jsonc`. Put `API_TOKEN=...` in `.dev.vars` and set the same value with `wrangler secret put API_TOKEN`. That secret is the operator admin token. Workflows use OIDC and do not need it. Point `ERA_API_URL` and the action's `api-url` at the deployed URL. The OIDC audience is that URL's origin. Apply the auth migration and configure the GitHub App and secrets from [the login setup guide](docs/AUTH.md) to enable user onboarding.
+`bun run deploy` publishes the Worker in `wrangler.jsonc`. Put `API_TOKEN=...` in `.dev.vars` and set the same value with `wrangler secret put API_TOKEN`. That secret is the operator admin token. Workflows use OIDC and do not need it. In-context inference uses whichever model source the Worker has: run `wrangler secret put ANTHROPIC_API_KEY` (and add it to `.dev.vars` for local runs) to use Claude; otherwise the `AI` binding in `wrangler.jsonc` serves inference through Workers AI. Both model ids are set in `wrangler.jsonc` under `vars` as `ANTHROPIC_MODEL` and `WORKERS_AI_MODEL`; change them there and redeploy. Remove the binding to disable that fallback. With neither source, requests that configure inference receive 503. Point `ERA_API_URL` and the action's `api-url` at the deployed URL. The OIDC audience is that URL's origin. Apply the auth migration and configure the GitHub App and secrets from [the login setup guide](docs/AUTH.md) to enable user onboarding.
 
 ## Bibliography
 

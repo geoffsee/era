@@ -10,7 +10,9 @@ import {
     MemoryCredentialCache,
 } from "../core/auth/credentials.ts";
 import type { BacktestResponse, ForecastRequest, ForecastResponse } from "../core/forecast/forecast-contract.ts";
-import { loadRoadmapIssue } from "../app/repositories/github-data-repository.ts";
+import { INFERENCE_LIMITS, type InferenceConfig } from "../core/forecast/inference.ts";
+import { isEpicTitle } from "../core/roadmap/roadmap.ts";
+import { loadRoadmapIssue, type RoadmapIssue } from "../app/repositories/github-data-repository.ts";
 import { loadHistoricalData, loadHistoricalPullRequests } from "../app/repositories/historical-data-repository.ts";
 import type { RoadmapConfig } from "../core/roadmap/roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "../core/tracking/model.ts";
@@ -42,13 +44,15 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
   era ingest-history --repository owner/name --dir historical-data
   era backtest --repository owner/name --dir historical-data
   era record-estimate --repository owner/name [--body roadmap.md --history historical-data --titles titles.json]
-  era estimate --repository owner/name [--issue N] [--body roadmap.md --titles titles.json --history historical-data --plan forecast-plan.json]
+  era estimate --repository owner/name [--issue N] [--body roadmap.md --titles titles.json --descriptions bodies.json --history historical-data --plan forecast-plan.json]
 
 ERA_API_URL and ERA_API_TOKEN select the Cloudflare tracker. --api and --token override them.
 Saved login credentials are used when flags and environment variables are absent.
 Roadmap commands load era.config.json from the current directory; --config selects another file.
 estimate sends a snapshot to the authenticated Worker without recording predictions.
 record-estimate calculates and records on the Worker. Dollar predictions use the versioned usd_subtotal metric.
+An inference section in era.config.json asks the Worker's model to infer extra per-item fields in context; estimate
+reports them and record-estimate records the numeric ones. --descriptions supplies issue bodies for saved snapshots.
 `;
 
 export async function runCli(argv: string[], io: Io = defaultIo()): Promise<number> {
@@ -73,7 +77,7 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
         switch (command) {
             case "roadmap": {
                 const repository = required(flags, "repository");
-                const roadmapConfig = loadRoadmapConfig(flags);
+                const roadmapConfig = loadEraConfig(flags)?.roadmap;
                 const roadmap = await loadRoadmapSource(repository, flags, roadmapConfig);
                 const result = await post(api, io, "/v1/roadmap-validations", { repository, roadmap, roadmapConfig });
                 io.stdout(JSON.stringify(result, null, 2));
@@ -194,7 +198,7 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
                     repository,
                     history,
                     record: true,
-                    roadmapConfig: loadRoadmapConfig(flags),
+                    roadmapConfig: loadEraConfig(flags)?.roadmap,
                 });
                 io.stdout(renderAccuracy(body.reports));
                 return 0;
@@ -220,7 +224,10 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
     }
 }
 
-function loadRoadmapConfig(flags: Map<string, string>): RoadmapConfig | undefined {
+/** era.config.json: declarative roadmap format and in-context inference fields. The Worker validates both. */
+type EraConfig = { roadmap?: RoadmapConfig; inference?: InferenceConfig };
+
+function loadEraConfig(flags: Map<string, string>): EraConfig | undefined {
     const path = flags.get("config") ?? "era.config.json";
     if (!flags.has("config") && !existsSync(path)) return undefined;
     const config = JSON.parse(readFileSync(path, "utf8"));
@@ -229,27 +236,39 @@ function loadRoadmapConfig(flags: Map<string, string>): RoadmapConfig | undefine
         typeof config !== "object" ||
         Array.isArray(config) ||
         config.version !== 1 ||
-        !config.roadmap ||
-        Object.keys(config).some((key) => !["version", "roadmap"].includes(key))
+        (!config.roadmap && !config.inference) ||
+        Object.keys(config).some((key) => !["version", "roadmap", "inference"].includes(key))
     )
-        throw new Error("ERA config must contain version: 1 and roadmap configuration");
-    return config.roadmap as RoadmapConfig;
+        throw new Error("ERA config must contain version: 1 and roadmap or inference configuration");
+    return { roadmap: config.roadmap, inference: config.inference };
 }
 
 async function loadForecastInput(repository: string, flags: Map<string, string>): Promise<ForecastRequest> {
-    const roadmapConfig = loadRoadmapConfig(flags);
-    const roadmap = await loadRoadmapSource(repository, flags, roadmapConfig);
+    const config = loadEraConfig(flags);
+    const roadmap = await loadRoadmapSource(repository, flags, config?.roadmap, config?.inference !== undefined);
     const history = await loadHistoricalData(flags.get("history") ?? "historical-data");
     if (history.repository !== repository)
         throw new Error(`historical repository ${history.repository ?? "unavailable"} does not match ${repository}`);
     const plan = flags.has("plan") ? JSON.parse(readFileSync(flags.get("plan")!, "utf8")) : undefined;
-    return { repository, history, plan, roadmap, roadmapConfig };
+    return { repository, history, plan, roadmap, roadmapConfig: config?.roadmap, inference: config?.inference };
+}
+
+/** Issue bodies for the items the roadmap references, trimmed to the Worker's per-item limit. */
+function issueDescriptions(issue: RoadmapIssue, body: string): Record<string, string> {
+    const referenced = new Set([...body.matchAll(/#([1-9]\d*)/g)].map((match) => Number(match[1])));
+    const descriptions: Record<string, string> = {};
+    for (const [number, text] of issue.bodies) {
+        if (!referenced.has(number) || isEpicTitle(issue.titles.get(number) ?? "") || !text.trim()) continue;
+        descriptions[String(number)] = text.trim().slice(0, INFERENCE_LIMITS.itemDescriptionChars);
+    }
+    return descriptions;
 }
 
 async function loadRoadmapSource(
     repository: string,
     flags: Map<string, string>,
     config?: RoadmapConfig,
+    withDescriptions = false,
 ): Promise<ForecastRequest["roadmap"]> {
     if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("repository must be owner/name");
     const [owner, repo] = repository.split("/") as [string, string];
@@ -261,15 +280,20 @@ async function loadRoadmapSource(
             title: flags.get("title") ?? "Roadmap",
             body: readFileSync(flags.get("body")!, "utf8"),
             titles: flags.has("titles") ? JSON.parse(readFileSync(flags.get("titles")!, "utf8")) : {},
+            ...(withDescriptions && flags.has("descriptions")
+                ? { descriptions: JSON.parse(readFileSync(flags.get("descriptions")!, "utf8")) }
+                : {}),
         };
     }
     const issue = await loadRoadmapIssue(owner, repo, flags.has("issue") ? Number(flags.get("issue")) : undefined);
+    const body = flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body;
     return {
         number: issue.number,
         title: issue.title,
-        body: flags.has("body") ? readFileSync(flags.get("body")!, "utf8") : issue.body,
+        body,
         titles: Object.fromEntries(issue.titles),
         states: Object.fromEntries(issue.issueStates),
+        ...(withDescriptions ? { descriptions: issueDescriptions(issue, body) } : {}),
     };
 }
 

@@ -7,9 +7,13 @@
   "vars": {
     "PUBLIC_API_URL": "https://era-tracker.seemueller.workers.dev",
     "GITHUB_APP_ID": "5200437",
-    "GITHUB_APP_SLUG": "era-roadmap"
+    "GITHUB_APP_SLUG": "era-roadmap",
+    // In-context inference: Claude when the ANTHROPIC_API_KEY secret is set, otherwise the AI binding below.
+    "ANTHROPIC_MODEL": "claude-opus-5-5",
+    "WORKERS_AI_MODEL": "@cf/ibm-granite/granite-4.0-h-micro"
   },
   "triggers": { "crons": ["0 * * * *"] },
+  "ai": { "binding": "AI" },
   "d1_databases": [
     {
       "binding": "DB",

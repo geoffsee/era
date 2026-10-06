@@ -1,6 +1,7 @@
 import { estimateRoadmap, type RoadmapEstimate } from "../../core/forecast/estimator.ts";
 import type { ForecastRequest, JsonEstimate } from "../../core/forecast/forecast-contract.ts";
 import { parseForecastPlan } from "../../core/forecast/forecast-plan.ts";
+import { INFERENCE_LIMITS, parseInferenceConfig } from "../../core/forecast/inference.ts";
 import { renderEstimate } from "../../core/forecast/format.ts";
 import { EMPTY_REVIEW_POOL, type HistoricalData } from "../../core/history/history.ts";
 import { parseRoadmapConfig, resolveRoadmap } from "../../core/roadmap/roadmap-format.ts";
@@ -22,7 +23,25 @@ export function parseForecastRequest(value: unknown): ForecastRequest {
     const record = recordField(input.record);
     if (record && roadmap.number === 0) throw new ForecastInputError("recording requires a real roadmap issue number");
     const plan = input.plan === undefined ? undefined : asInput(() => parseForecastPlan(input.plan));
-    return { repository, roadmap: roadmap as ForecastRequest["roadmap"], history, record, plan, roadmapConfig };
+    const inference = input.inference === undefined ? undefined : asInput(() => parseInferenceConfig(input.inference));
+    if (roadmap.descriptions !== undefined) issueStrings(roadmap.descriptions, "roadmap descriptions");
+    const descriptions = roadmap.descriptions
+        ? Object.fromEntries(
+              Object.entries(roadmap.descriptions as Record<string, string>).map(([id, body]) => [
+                  id,
+                  body.slice(0, INFERENCE_LIMITS.itemDescriptionChars),
+              ]),
+          )
+        : undefined;
+    return {
+        repository,
+        roadmap: { ...(roadmap as ForecastRequest["roadmap"]), descriptions },
+        history,
+        record,
+        plan,
+        roadmapConfig,
+        inference,
+    };
 }
 
 export function validateRoadmapRequest(value: unknown) {
