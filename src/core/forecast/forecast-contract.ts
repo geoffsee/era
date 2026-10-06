@@ -1,7 +1,8 @@
 import type { Calibration, RoadmapEstimate } from "./estimator.ts";
 import type { ForecastPlan } from "./forecast-plan.ts";
-import type { InferenceConfig, InferredEstimates } from "./inference.ts";
+import type { InferenceConfig, InferenceUsage, InferredEstimates } from "./inference.ts";
 import type { HistoricalData } from "../history/history.ts";
+import type { DetectedRoadmap } from "../roadmap/roadmap-detection.ts";
 import type { RoadmapConfig } from "../roadmap/roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "../tracking/model.ts";
 
@@ -38,6 +39,12 @@ export type ForecastResponse = {
     inferred?: InferredEstimates;
     stored: number;
 };
+
+export type RoadmapDetectionRequest = {
+    repository: string;
+    roadmap: { number: number; title: string; body: string; titles?: Record<string, string> };
+};
+export type RoadmapDetectionResponse = DetectedRoadmap & { repository: string; model: string; usage: InferenceUsage };
 
 export type BacktestRequest = {
     repository: string;

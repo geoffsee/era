@@ -35,6 +35,16 @@ Create `era.config.json` in your current working directory, or pass `--config pa
 
 Columns may appear in any order. Names match trimmed table headings exactly. `section` selects a Markdown heading and its subsections; omit it when there is one matching table. Fenced examples are ignored. Multiple matching tables, duplicate headings, missing mapped columns and malformed rows are errors. Escaped pipes and pipes inside inline code are supported. This adapter reads Markdown pipe tables, not arbitrary prose or HTML tables.
 
+## Detect a structure
+
+If you do not want to write the mapping by hand, ask the tracker's model for a first draft:
+
+```sh
+era roadmap detect --repository owner/name --issue 123
+```
+
+The CLI sends the issue body and the repository's issue titles to `POST /v1/roadmap-detections`. The Worker's model proposes either a `markdown-table` mapping for a qualifying table or, when the body has no usable table, a normalized roadmap built from the issues the body references. The Worker runs the real parser on the proposal and returns it only if it parses; a rejected proposal is sent back to the model once with the parser's error, and a second rejection becomes a 422 that names it. The CLI writes `era.config.json` (`--out`), and for the normalized shape also `roadmap.json` (`--roadmap-out`), then prints the parsed items, dependencies, and diagnostics with the matching `era roadmap validate` command. Both files are plain JSON meant to be edited by hand before you validate or estimate. Detection records nothing and needs the Worker's model source, so it answers 503 when none is configured.
+
 ## Validate before estimating
 
 ```sh

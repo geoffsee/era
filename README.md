@@ -13,7 +13,7 @@ Teams that deliver with coding agents have a measurable history that story point
 - **Three deterministic models and one inferred layer.** Token-threshold sprint sizing, deliberative story-point negotiation, and priced delivery cost come from [the theory notes](docs/THEORY.md). An optional in-context inference layer lets a language model estimate any additional quantity you declare, such as calendar days or review rounds, from the same evidence.
 - **Every estimate is a tracked prediction.** Forecasts are recorded per issue, model, and metric. Actuals recorded later produce MAE, MMRE, PRED(0.5), and a correction scale per model, so the deterministic models and the inference model are judged by the same yardstick.
 - **Evidence gaps stay visible.** Unpriced costs, parser approximations, and missing observations are listed in every report instead of being silently zeroed.
-- **Your roadmap format.** The legacy lane and gate tables, a Markdown table of your own design, or normalized JSON. `era roadmap validate` previews the parsed work and dependencies before anything is estimated.
+- **Your roadmap format.** The legacy lane and gate tables, a Markdown table of your own design, or normalized JSON. `era roadmap detect` drafts the mapping from the issue itself, and `era roadmap validate` previews the parsed work and dependencies before anything is estimated.
 
 ## How it works
 
@@ -77,7 +77,7 @@ era estimate --repository owner/name --issue 359 \
 
 `era.config.json` in the working directory, or the file named by `--config`, carries two optional sections.
 
-- **`roadmap`** selects and maps your roadmap format. See [Configurable roadmaps](docs/ROADMAP-FORMATS.md).
+- **`roadmap`** selects and maps your roadmap format. `era roadmap detect --repository owner/name --issue N` asks the tracker's model for a parser-verified draft of this section and writes it for you to edit. See [Configurable roadmaps](docs/ROADMAP-FORMATS.md).
 - **`inference`** declares additional per-item estimates for the tracker's model to infer in context:
 
 ```json

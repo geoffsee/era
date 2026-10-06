@@ -77,7 +77,8 @@ export class ForecastService {
         return { repository, ...batch, reports, stored };
     }
 }
-function authorizedContent(value: unknown, identity: Identity | undefined) {
+/** Shared guard: identity required, and the request's repository must be within its scope. */
+export function authorizedContent(value: unknown, identity: Identity | undefined) {
     if (!identity) throw new HttpError("unauthorized", 401);
     const content = object(value, "request");
     assertAccess(identity, repositoryField(content.repository));
