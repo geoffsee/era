@@ -15,6 +15,7 @@
     "dist/cli.js",
     "docs/AUTH.md",
     "docs/FORECAST-API.md",
+    "docs/HISTORICAL-DATA.md",
     "docs/ROADMAP-FORMATS.md",
     "examples/roadmaps",
     "historical-data/*.schema.json"
