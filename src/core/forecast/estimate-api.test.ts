@@ -44,12 +44,21 @@ test("Worker records generated versioned predictions only when requested", async
         apiToken: "test-token",
     });
     expect(response.status).toBe(200);
-    expect(((await response.json()) as ForecastResponse).stored).toBe(6);
+    const body = (await response.json()) as ForecastResponse;
+    expect(body.stored).toBe(12);
+    expect(body.report).toContain("## Ledger calibration");
+    expect(body.calibrationSnapshot?.snapshotId).toMatch(/^cal_[0-9a-f]{16}$/);
     const rows = await accuracyService.predictions(snapshot.repository);
     expect(rows.find((row) => row.metric === "usd_subtotal")).toMatchObject({
         subject: "issue:359",
         model: "delivery-cost-v2",
+        snapshotId: body.calibrationSnapshot?.snapshotId,
     });
+    expect(rows.filter((row) => row.model.endsWith(":aligned"))).toHaveLength(6);
+    expect(
+        rows.find((row) => row.subject === "issue:2" && row.metric === "tokens" && row.model === "token-threshold")
+            ?.lane,
+    ).toBe("T01");
     expect(rows.some((row) => row.metric === "usd")).toBe(false);
 });
 

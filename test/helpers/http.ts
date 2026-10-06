@@ -16,9 +16,11 @@ import { TrackingController } from "../../src/app/controllers/tracking-controlle
 import worker from "../../src/app/main.ts";
 import { AuthRepository } from "../../src/app/repositories/auth-repository.ts";
 import { ForecastSchema } from "../../src/app/repositories/forecast-schema.ts";
+import { CalibrationRepository } from "../../src/app/repositories/calibration-repository.ts";
 import { ObservationRepository } from "../../src/app/repositories/observation-repository.ts";
 import { PredictionRepository } from "../../src/app/repositories/prediction-repository.ts";
 import { AccuracyService } from "../../src/app/services/accuracy-service.ts";
+import { CalibrationService } from "../../src/app/services/calibration-service.ts";
 import { AuthService } from "../../src/app/services/auth-service.ts";
 import { ForecastService } from "../../src/app/services/forecast-application-service.ts";
 import { InferenceService } from "../../src/app/services/inference-service.ts";
@@ -42,7 +44,9 @@ const WORKER_GRAPH: ReadonlyArray<Parameters<Container["register"]>[0]> = [
     AuthRepository,
     PredictionRepository,
     ObservationRepository,
+    CalibrationRepository,
     AccuracyService,
+    CalibrationService,
     InferenceService,
     RoadmapDetectionService,
     ForecastService,

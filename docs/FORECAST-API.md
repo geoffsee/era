@@ -27,11 +27,12 @@ A successful request returns 200 with a [`ForecastResponse`](../src/core/forecas
 
 - `repository` and `estimate`: the complete structured estimate, including children, costs/gaps, scope diagnostics, assumptions and validation. Calibration maps become JSON objects keyed by PR/epic number; entries are preserved during serialization.
 - `report`: the Markdown report rendered on the Worker.
-- `predictions`: generated tracking rows, or an empty array for an unidentified snapshot (`number: 0`). Inferred numeric fields are included under model `inference:<model id>`.
+- `predictions`: generated tracking rows, or an empty array for an unidentified snapshot (`number: 0`). Each row is recorded twice when a calibration snapshot is available: the unaligned model (`token-threshold`, `seeagent`, `delivery-cost-v2`) and the same metric under `<model>:aligned`. Both carry that snapshot id. Child rows also carry their lane. Inferred numeric fields are included under model `inference:<model id>` and carry the same snapshot id.
+- `calibrationSnapshot`: the repository's current factor vector (global scale, per-lane multipliers, gamma), the evidence behind each factor, and the snapshot id those predictions are tagged with.
 - `inferred`: present when the request configured inference; the model id, the fields, one entry per remaining item with its values and rationale, and token usage.
 - `stored`: the count saved when `record` is true, otherwise zero.
 
-Calculation-only requests do not persist input snapshots, usage history or forecast records. Recording upserts predictions with the existing upsert semantics; it does not persist full input evidence. Future acceptance evidence and billing receipts are still needed for prospective validation. No client-generated prediction or calibration field is used to calculate the response.
+Calculation-only requests do not persist input snapshots, usage history or forecast records. They do refresh the stored calibration vector when the blend of the usage extract and the prediction ledger changes, because the next estimate reads that vector. Recording upserts predictions with the existing upsert semantics; it does not persist full input evidence. Raw and aligned rows are separate models so later accuracy can show whether alignment helped. No client-generated prediction or calibration field is used to calculate the response. Scale and per-lane multipliers are fit once about two effective ledger pairs exist; gamma waits for several. Ledger pairs lose half their weight every 14 days.
 
 The CLI sends the same request for both commands, adding `record: true` for the second:
 

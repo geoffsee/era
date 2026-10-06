@@ -46,6 +46,7 @@ import {
     tokenSize,
     totalCost,
 } from "./theory.ts";
+import type { CalibrationOverride } from "./calibration.ts";
 import { type ChronologicalValidation, chronologicalTokenValidation } from "./validation.ts";
 
 /** Assumed future routing; mixed-model history cannot reconstruct model-specific historical bills. */
@@ -393,6 +394,8 @@ export function estimateRoadmap(input: {
     plan?: ForecastPlan;
     issueStates?: ReadonlyMap<number, string>;
     roadmapConfig?: RoadmapConfig;
+    /** Posterior scale, lane multipliers, and gamma. Absent leaves the extract unchanged. */
+    calibrationOverride?: CalibrationOverride;
 }): RoadmapEstimate {
     const plan = input.plan ? parseForecastPlan(input.plan) : undefined;
     const assumptions = input.assumptions ?? DEFAULT_ASSUMPTIONS;
@@ -450,6 +453,7 @@ export function estimateRoadmap(input: {
                 plan?.humanActivities !== undefined,
                 history,
                 calibration,
+                input.calibrationOverride,
             ),
         );
     }
@@ -583,13 +587,16 @@ function estimateChild(
     explicitHumanActivities: boolean,
     history: readonly HistoricalPullRequest[],
     repositoryCalibration: Calibration,
+    override?: CalibrationOverride,
 ): ChildEstimate {
+    const laneId = laneForIssue(lanes, issue)?.id ?? "";
+    const multiplier = (override?.scale ?? 1) * (laneId ? (override?.lanes[laneId] ?? 1) : 1);
     const typicalTokens =
         !work?.comparablePrs && epic !== null && calibration.epicTokens.has(epic)
             ? calibration.epicTokens.get(epic)!
             : calibration.medianTotalTokens;
     const authorBlocks = work?.authorBlocks ?? 1;
-    const tokens = typicalTokens * authorBlocks;
+    const tokens = typicalTokens * authorBlocks * multiplier;
     const analogPoints =
         !work?.comparablePrs && epic !== null && calibration.epicPoints.has(epic)
             ? calibration.epicPoints.get(epic)!
@@ -601,7 +608,7 @@ function estimateChild(
     ]).estimate;
 
     const weight = complexityWeight(storyPoints);
-    const base = baseTokensFromStoryPoints(storyPoints, calibration.gammaPerPoint, weight);
+    const base = baseTokensFromStoryPoints(storyPoints, override?.gamma ?? calibration.gammaPerPoint, weight);
     const outputTokens = base * calibration.outputShareOfBase;
     const inputTokens = base - outputTokens;
     const reviewCalibration = calibration.reviewCoveredPullRequests > 0 ? calibration : repositoryCalibration;
@@ -622,7 +629,7 @@ function estimateChild(
 
     return {
         issue,
-        laneId: laneForIssue(lanes, issue)?.id ?? "",
+        laneId,
         epic,
         tokens,
         size: tokenSize(tokens),

@@ -145,10 +145,10 @@ Chronological retrospective token validation compares repository and epic median
 | Subject | What it identifies |
 | --- | --- |
 | `issue:<roadmap number>` | The roadmap issue. Metrics are `tokens` for E_raw, `tokens_effective` for E_eff, `story_points`, and `usd_subtotal`. Dollars use model `delivery-cost-v2` and include only priced components. Historical `acem` / `usd` rows are preserved separately. |
-| `issue:<child number>` | One child issue. Metrics are `tokens` and `story_points`. |
+| `issue:<child number>` | One child issue. Metrics are `tokens` and `story_points`. The row's `lane` is that child's lane. |
 | `pr:<number>` | One pull request. Historical ingest records `tokens` for a merged pull request with token usage. |
 
-An observation uses the same `issue:` or `pr:` subject as the prediction it should score.
+Recorded forecast rows also carry the calibration `snapshotId` they were aligned under. The aligned copy uses the model name with a `:aligned` suffix. An observation uses the same `issue:` or `pr:` subject as the prediction it should score.
 
 `estimate` calls `POST /v1/estimates` without recording forecast records; saved snapshots can omit `--issue`. It requires Worker credentials even when GitHub access is unnecessary. `record-estimate` calls the same endpoint with `record: true` and requires a positive real roadmap issue number before writing to the tracker. Recording new dollar rows does not migrate or overwrite legacy dollar predictions.
 

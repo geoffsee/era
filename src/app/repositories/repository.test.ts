@@ -25,14 +25,10 @@ const id = (model: string, repository = "acme/app") => JSON.stringify([repositor
 test("framework repository preserves pre-existing composite rows, upserts, filters and deletes", async () => {
     const { database, db } = fixture();
     try {
-        database.run("INSERT INTO predictions VALUES (?, ?, ?, ?, ?, ?)", [
-            prediction.repository,
-            prediction.subject,
-            prediction.model,
-            prediction.metric,
-            5,
-            prediction.recordedAt,
-        ]);
+        database.run(
+            "INSERT INTO predictions (repository, subject, model, metric, predicted, recorded_at) VALUES (?, ?, ?, ?, ?, ?)",
+            [prediction.repository, prediction.subject, prediction.model, prediction.metric, 5, prediction.recordedAt],
+        );
         const repository = new PredictionRepository(db);
         expect((await repository.findById(id("first")))?.predicted).toBe(5);
         await repository.save(prediction);
@@ -63,7 +59,7 @@ test("framework repository preserves pre-existing composite rows, upserts, filte
                 .query("PRAGMA table_info(predictions)")
                 .all()
                 .map((column) => (column as { name: string }).name),
-        ).toEqual(["repository", "subject", "model", "metric", "predicted", "recorded_at"]);
+        ).toEqual(["repository", "subject", "model", "metric", "predicted", "recorded_at", "snapshot_id", "lane"]);
     } finally {
         database.close();
     }
