@@ -90,6 +90,7 @@ try {
                     "dist/cli.js",
                     "docs/AUTH.md",
                     "docs/FORECAST-API.md",
+                    "docs/HISTORICAL-DATA.md",
                     "docs/ROADMAP-FORMATS.md",
                 ].includes(path) ||
                 /^examples\/roadmaps\/(era\.config\.json|normalized\.config\.json|roadmap\.md|roadmap\.json)$/.test(

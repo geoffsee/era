@@ -1,4 +1,5 @@
 import type { ChildEstimate, RoadmapEstimate } from "./estimator.ts";
+import { type InferredEstimates, inferenceModelName } from "./inference.ts";
 
 export function renderEstimate(estimate: RoadmapEstimate, repository: string): string {
     const calibration = estimate.calibration;
@@ -115,6 +116,41 @@ export function renderEstimate(estimate: RoadmapEstimate, repository: string): s
         "",
     ];
     return lines.join("\n");
+}
+
+/** Appended to the deterministic report when the request configured inference fields. */
+export function renderInferred(inferred: InferredEstimates): string {
+    const header = inferred.fields.map((field) =>
+        field.type === "enum" ? field.name : `${field.name}${field.unit ? ` (${field.unit})` : ""}`,
+    );
+    const align = inferred.fields.map((field) => (field.type === "enum" ? "---" : "---:"));
+    const rows = inferred.items.map(
+        (item) =>
+            `| #${item.issue} | ${inferred.fields
+                .map((field) => {
+                    const value = item.values[field.name];
+                    return value === undefined
+                        ? "—"
+                        : typeof value === "number"
+                          ? value.toLocaleString("en-US")
+                          : value;
+                })
+                .join(" | ")} | ${cell(item.rationale)} |`,
+    );
+    return [
+        "## In-context inferred estimates",
+        "",
+        `${inferred.model} inferred ${inferred.fields.length} configured ${inferred.fields.length === 1 ? "field" : "fields"} for ${inferred.items.length} remaining ${inferred.items.length === 1 ? "item" : "items"} from the roadmap text, the historical pull requests and the deterministic estimate above. Numeric fields are recorded as model \`${inferenceModelName(inferred.model)}\` when predictions are recorded; score them with \`era accuracy\` as observations arrive.`,
+        "",
+        `| Issue | ${header.join(" | ")} | Rationale |`,
+        `| --- | ${align.join(" | ")} | --- |`,
+        ...(rows.length > 0
+            ? rows
+            : [`| — | ${inferred.fields.map(() => "—").join(" | ")} | The model returned no usable entries. |`]),
+        "",
+        `Model usage: ${inferred.usage.calls} ${inferred.usage.calls === 1 ? "call" : "calls"}, ${integer(inferred.usage.promptTokens)} prompt tokens, ${integer(inferred.usage.completionTokens)} completion tokens. Inferred values are model judgments, not measurements.`,
+        "",
+    ].join("\n");
 }
 
 function laneRows(children: readonly ChildEstimate[], reviewUnpriced: boolean): string[] {

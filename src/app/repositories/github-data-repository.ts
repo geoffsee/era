@@ -6,6 +6,8 @@ export type RoadmapIssue = {
     body: string;
     titles: Map<number, string>;
     issueStates: Map<number, string>;
+    /** Issue bodies, kept for in-context inference descriptions. */
+    bodies: Map<number, string>;
 };
 
 export async function loadRoadmapIssue(owner: string, repo: string, issueNumber?: number): Promise<RoadmapIssue> {
@@ -13,6 +15,7 @@ export async function loadRoadmapIssue(owner: string, repo: string, issueNumber?
         throw new Error("roadmap issue must be a positive integer");
     const titles = new Map<number, string>();
     const issueStates = new Map<number, string>();
+    const bodies = new Map<number, string>();
     const openRoadmaps: Array<{ number: number; title: string }> = [];
 
     for (let page = 1; ; page++) {
@@ -27,6 +30,7 @@ export async function loadRoadmapIssue(owner: string, repo: string, issueNumber?
             if (issue.pull_request) continue;
             titles.set(issue.number, issue.title);
             issueStates.set(issue.number, issue.state);
+            if (issue.body) bodies.set(issue.number, issue.body);
             if (issue.state === "open" && /roadmap/i.test(issue.title)) {
                 openRoadmaps.push({ number: issue.number, title: issue.title });
             }
@@ -54,5 +58,6 @@ export async function loadRoadmapIssue(owner: string, repo: string, issueNumber?
         body: data.body ?? "",
         titles,
         issueStates,
+        bodies,
     };
 }

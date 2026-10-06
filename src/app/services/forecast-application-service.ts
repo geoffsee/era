@@ -1,4 +1,5 @@
 import { AccuracyService } from "./accuracy-service.ts";
+import { InferenceService } from "./inference-service.ts";
 import { Component, Container } from "@di-framework/core/decorators";
 import {
     assertFiniteResult,
@@ -11,6 +12,8 @@ import {
     repositoryField,
     validateRoadmapRequest,
 } from "./forecast-service.ts";
+import { renderInferred } from "../../core/forecast/format.ts";
+import { inferredPredictions } from "../../core/forecast/inference.ts";
 import { parseRoadmapConfig, roadmapHistory } from "../../core/roadmap/roadmap-format.ts";
 import { assertAccess, HttpError, type Identity } from "../../core/auth/access.ts";
 import { tokenBacktest } from "../../core/tracking/backtest.ts";
@@ -18,7 +21,10 @@ import { scoreRepository } from "../../core/tracking/score.ts";
 
 @Container()
 export class ForecastService {
-    constructor(@Component(AccuracyService) private readonly accuracyService: AccuracyService) {}
+    constructor(
+        @Component(AccuracyService) private readonly accuracyService: AccuracyService,
+        @Component(InferenceService) private readonly inference: InferenceService,
+    ) {}
 
     validate(value: unknown, identity: Identity | undefined) {
         return validateRoadmapRequest(authorizedContent(value, identity));
@@ -26,11 +32,19 @@ export class ForecastService {
 
     async estimate(value: unknown, identity: Identity | undefined) {
         const input = parseForecastRequest(authorizedContent(value, identity));
-        const result = calculateForecast(input, new Date().toISOString());
-        const stored = input.record
-            ? await storage(() => this.accuracyService.recordPredictions(result.predictions))
-            : 0;
-        return { ...result, stored };
+        const now = new Date().toISOString();
+        const result = calculateForecast(input, now);
+        const inferred = input.inference
+            ? await this.inference.infer(input.inference, input, result.estimate.children)
+            : undefined;
+        // Inferred numeric fields join the ledger only for identified roadmaps, like the deterministic rows.
+        const predictions =
+            inferred && result.estimate.issueNumber !== 0
+                ? [...result.predictions, ...inferredPredictions(input.repository, inferred, now)]
+                : result.predictions;
+        const report = inferred ? `${result.report}\n${renderInferred(inferred)}` : result.report;
+        const stored = input.record ? await storage(() => this.accuracyService.recordPredictions(predictions)) : 0;
+        return { ...result, report, predictions, inferred, stored };
     }
 
     async backtest(value: unknown, identity: Identity | undefined) {

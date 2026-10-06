@@ -1,14 +1,33 @@
-import { env } from "cloudflare:workers";
+import {
+    AnthropicChatModel,
+    type ChatModel,
+    DEFAULT_WORKERS_AI_MODEL,
+    isWorkersAiBinding,
+    WorkersAiChatModel,
+} from "@di-framework/ai";
+import { CloudflareEnvironment } from "@di-framework/cloudflare";
 import { Bean, Configuration } from "@di-framework/core/decorators";
 import type { SqlDatabase } from "../core/persistence/database.ts";
 import type { AuthConfig } from "./services/auth-service.ts";
 
 /** Worker bindings declared in wrangler.jsonc and secrets. */
-export interface Env extends Partial<AuthConfig> {
+export type Env = Partial<AuthConfig> & {
     DB: SqlDatabase;
+    /** Workers AI binding; enables in-context inference without a provider key. */
+    AI?: unknown;
     API_TOKEN?: string;
     OIDC_AUDIENCE?: string;
-}
+    /** Preferred inference provider; the model defaults to DEFAULT_CHAT_MODEL. */
+    ANTHROPIC_API_KEY?: string;
+    ANTHROPIC_MODEL?: string;
+    /** Workers AI model used when no Anthropic key is bound. */
+    WORKERS_AI_MODEL?: string;
+};
+
+/** String bindings that are secrets rather than vars, so the connector never classifies them as plain config. */
+export const SECRET_NAMES = ["API_TOKEN", "ANTHROPIC_API_KEY", "GITHUB_CLIENT_SECRET", "AUTH_SECRET"] as const;
+/** Connector options shared by the Worker entry point and the test harness. */
+export const CLOUDFLARE_BINDING_OPTIONS = { secretNames: SECRET_NAMES, localFallback: false } as const;
 
 /** The opened D1 handle; the Worker runtime creates it outside the container. */
 export const SQL_DATABASE = "era.sql-database";
@@ -16,6 +35,10 @@ export const SQL_DATABASE = "era.sql-database";
 export const WORKER_SETTINGS = "era.worker-settings";
 /** GitHub login configuration, or undefined when login is disabled on this Worker. */
 export const AUTH_CONFIG = "era.auth-config";
+/** Chat model for in-context inference, or undefined when neither a provider key nor an AI binding exists. */
+export const CHAT_MODEL = "era.chat-model";
+
+export const DEFAULT_CHAT_MODEL = "claude-opus-5-5";
 
 export type WorkerSettings = {
     /** Admin bearer token; empty disables admin access. */
@@ -26,38 +49,59 @@ export type WorkerSettings = {
     auth?: AuthConfig;
 };
 
-export function workerSettings(bindings: Env): WorkerSettings {
+export function workerSettings(bindings: CloudflareEnvironment): WorkerSettings {
+    const publicApiUrl = text(bindings, "PUBLIC_API_URL");
     return {
-        apiToken: bindings.API_TOKEN ?? "",
-        oidcAudience: bindings.OIDC_AUDIENCE || undefined,
-        auth: bindings.PUBLIC_API_URL
+        apiToken: text(bindings, "API_TOKEN") ?? "",
+        oidcAudience: text(bindings, "OIDC_AUDIENCE"),
+        auth: publicApiUrl
             ? {
-                  PUBLIC_API_URL: bindings.PUBLIC_API_URL,
-                  GITHUB_APP_ID: bindings.GITHUB_APP_ID ?? "",
-                  GITHUB_APP_SLUG: bindings.GITHUB_APP_SLUG ?? "",
-                  GITHUB_CLIENT_ID: bindings.GITHUB_CLIENT_ID ?? "",
-                  GITHUB_CLIENT_SECRET: bindings.GITHUB_CLIENT_SECRET ?? "",
-                  AUTH_SECRET: bindings.AUTH_SECRET ?? "",
+                  PUBLIC_API_URL: publicApiUrl,
+                  GITHUB_APP_ID: text(bindings, "GITHUB_APP_ID") ?? "",
+                  GITHUB_APP_SLUG: text(bindings, "GITHUB_APP_SLUG") ?? "",
+                  GITHUB_CLIENT_ID: text(bindings, "GITHUB_CLIENT_ID") ?? "",
+                  GITHUB_CLIENT_SECRET: text(bindings, "GITHUB_CLIENT_SECRET") ?? "",
+                  AUTH_SECRET: text(bindings, "AUTH_SECRET") ?? "",
               }
             : undefined,
     };
 }
 
-/** The only module that reads Worker bindings; everything else injects these beans. */
+/**
+ * Turns the published Worker bindings into application beans. `@di-framework/cloudflare` publishes
+ * the env and classifies each binding; nothing else in the application reads bindings.
+ */
 @Configuration()
 export class WorkerConfiguration {
-    @Bean(SQL_DATABASE)
-    database(): SqlDatabase {
-        return env.DB;
+    @Bean(SQL_DATABASE, { dependencies: [CloudflareEnvironment] })
+    database(bindings: CloudflareEnvironment): SqlDatabase | undefined {
+        return bindings.getBinding("DB")?.binding as SqlDatabase | undefined;
     }
 
-    @Bean(WORKER_SETTINGS)
-    settings(): WorkerSettings {
-        return workerSettings(env);
+    @Bean(WORKER_SETTINGS, { dependencies: [CloudflareEnvironment] })
+    settings(bindings: CloudflareEnvironment): WorkerSettings {
+        return workerSettings(bindings);
     }
 
     @Bean(AUTH_CONFIG, { dependencies: [WORKER_SETTINGS] })
     authConfig(settings: WorkerSettings): AuthConfig | undefined {
         return settings.auth;
     }
+
+    /** An Anthropic key wins; otherwise the Workers AI binding serves inference; otherwise inference is off. */
+    @Bean(CHAT_MODEL, { dependencies: [CloudflareEnvironment] })
+    chatModel(bindings: CloudflareEnvironment): ChatModel | undefined {
+        const apiKey = text(bindings, "ANTHROPIC_API_KEY");
+        if (apiKey)
+            return new AnthropicChatModel({ apiKey, model: text(bindings, "ANTHROPIC_MODEL") ?? DEFAULT_CHAT_MODEL });
+        const ai = bindings.getBinding("AI")?.binding;
+        if (isWorkersAiBinding(ai))
+            return WorkersAiChatModel.of(ai, { model: text(bindings, "WORKERS_AI_MODEL") ?? DEFAULT_WORKERS_AI_MODEL });
+        return undefined;
+    }
+}
+
+function text(bindings: CloudflareEnvironment, name: string): string | undefined {
+    const value = bindings.getBinding(name)?.binding;
+    return typeof value === "string" && value ? value : undefined;
 }
