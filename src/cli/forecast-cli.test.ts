@@ -1,6 +1,6 @@
 import { ScriptedChatModel } from "@di-framework/ai";
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
@@ -212,6 +212,73 @@ test("an inference section in era.config.json adds model-inferred fields to the 
         expect(report).toContain("| #335 | 4 | Like PR #1. |");
         expect(chatModel.calls[0]!.messages.map((message) => message.text).join("\n")).toContain(
             "Description: Amend the ADR and link the ledger.",
+        );
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("roadmap detect writes a parser-verified configuration for hand editing and prints the parsed items", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "era-detect-"));
+    try {
+        const config = JSON.parse(readFileSync(join(root, "examples/roadmaps/era.config.json"), "utf8")).roadmap;
+        const chatModel = new ScriptedChatModel(
+            [
+                {
+                    respond: JSON.stringify({
+                        format: "markdown-table",
+                        config: { section: config.section, columns: config.columns, states: config.states },
+                        rationale: "The Delivery plan table qualifies.",
+                        confidence: "high",
+                    }),
+                },
+            ],
+            { model: "scripted-model" },
+        );
+        const accuracyService = createTestAccuracyService();
+        const output: string[] = [];
+        const urls: string[] = [];
+        const code = await runCli(
+            [
+                "roadmap",
+                "detect",
+                "--repository",
+                "octo/example",
+                "--issue",
+                "7",
+                "--body",
+                join(root, "examples/roadmaps/roadmap.md"),
+                "--titles",
+                join(root, "test/fixtures/roadmap-359-titles.json"),
+                "--out",
+                join(directory, "era.config.json"),
+            ],
+            {
+                env: { ERA_API_URL: "https://worker.test", ERA_API_TOKEN: "test" },
+                fetch: async (url, init) => {
+                    urls.push(String(url));
+                    return handleRequest(url instanceof Request ? url : new Request(String(url), init), {
+                        accuracyService,
+                        apiToken: "test",
+                        chatModel,
+                    });
+                },
+                stdout: (line) => output.push(line),
+                stderr: (line) => {
+                    throw new Error(line);
+                },
+            },
+        );
+        expect(code).toBe(0);
+        expect(urls).toEqual(["https://worker.test/v1/roadmap-detections"]);
+        const written = JSON.parse(readFileSync(join(directory, "era.config.json"), "utf8"));
+        expect(written).toEqual({ version: 1, roadmap: { ...config, format: "markdown-table" } });
+        const text = output.join("\n");
+        expect(text).toContain("Detected markdown-table roadmap (high confidence, scripted-model)");
+        expect(text).toContain("| #13 | work | active | Platform | Implement the storage adapter |");
+        expect(text).toContain("3 items, 2 dependencies, 0 milestones.");
+        expect(text).toContain(
+            `era roadmap validate --repository octo/example --issue 7 --config ${join(directory, "era.config.json")}`,
         );
     } finally {
         rmSync(directory, { recursive: true, force: true });

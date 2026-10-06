@@ -1,4 +1,4 @@
-import { mock } from "bun:test";
+import { afterEach, mock } from "bun:test";
 import type { Env } from "../src/app/configuration.ts";
 import type { CredentialOptions } from "../src/core/auth/access.ts";
 
@@ -8,6 +8,10 @@ mock.module("cloudflare:workers", () => ({ env }));
 
 /** GitHub OIDC double; when unset, requests reach the real verifier. */
 export const oidc: { verify?: CredentialOptions["verifyOidc"] } = {};
+// A double installed by one test must not leak into the next; file order differs between machines.
+afterEach(() => {
+    oidc.verify = undefined;
+});
 const { verifyGitHubOidc } = await import("../src/core/auth/oidc.ts");
 mock.module("../src/core/auth/oidc.ts", () => ({
     verifyGitHubOidc: (...[token, audience, options]: Parameters<typeof verifyGitHubOidc>) =>

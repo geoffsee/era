@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hashSecret } from "@di-framework/auth";
 import { apiUrl, login } from "../core/auth/cli.ts";
 import {
@@ -9,7 +9,12 @@ import {
     FileCredentialCache,
     MemoryCredentialCache,
 } from "../core/auth/credentials.ts";
-import type { BacktestResponse, ForecastRequest, ForecastResponse } from "../core/forecast/forecast-contract.ts";
+import type {
+    BacktestResponse,
+    ForecastRequest,
+    ForecastResponse,
+    RoadmapDetectionResponse,
+} from "../core/forecast/forecast-contract.ts";
 import { INFERENCE_LIMITS, type InferenceConfig } from "../core/forecast/inference.ts";
 import { isEpicTitle } from "../core/roadmap/roadmap.ts";
 import { loadRoadmapIssue, type RoadmapIssue } from "../app/repositories/github-data-repository.ts";
@@ -35,6 +40,7 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
   era tokens [--repository owner/name]
   era revoke-token --id TOKEN_ID [--repository owner/name]
 
+  era roadmap detect --repository owner/name --issue N [--out era.config.json --roadmap-out roadmap.json]
   era roadmap validate --repository owner/name [--body roadmap.md --config era.config.json]
 
   era predictions --repository owner/name --subject issue:1 --model token-threshold --metric tokens --value 100
@@ -49,6 +55,8 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
 ERA_API_URL and ERA_API_TOKEN select the Cloudflare tracker. --api and --token override them.
 Saved login credentials are used when flags and environment variables are absent.
 Roadmap commands load era.config.json from the current directory; --config selects another file.
+roadmap detect asks the Worker's model how an issue is structured and writes a parser-verified era.config.json
+(plus roadmap.json when the body has no usable table) for you to edit before validating or estimating.
 estimate sends a snapshot to the authenticated Worker without recording predictions.
 record-estimate calculates and records on the Worker. Dollar predictions use the versioned usd_subtotal metric.
 An inference section in era.config.json asks the Worker's model to infer extra per-item fields in context; estimate
@@ -62,7 +70,9 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
         return 0;
     }
     try {
-        if (command === "roadmap" && rest[0] !== "validate") throw new Error("Use era roadmap validate");
+        const subcommand = rest[0];
+        if (command === "roadmap" && subcommand !== "validate" && subcommand !== "detect")
+            throw new Error("Use era roadmap validate or era roadmap detect");
         const flags = parseFlags(command === "roadmap" ? rest.slice(1) : rest);
         const cache = io.credentials ?? new MemoryCredentialCache();
         const state = cache.read();
@@ -77,6 +87,24 @@ export async function runCli(argv: string[], io: Io = defaultIo()): Promise<numb
         switch (command) {
             case "roadmap": {
                 const repository = required(flags, "repository");
+                if (subcommand === "detect") {
+                    const roadmap = await loadRoadmapSource(repository, flags);
+                    const result = await post<RoadmapDetectionResponse>(api, io, "/v1/roadmap-detections", {
+                        repository,
+                        roadmap: {
+                            number: roadmap.number,
+                            title: roadmap.title,
+                            body: roadmap.body,
+                            titles: roadmap.titles,
+                        },
+                    });
+                    const out = flags.get("out") ?? "era.config.json";
+                    writeFileSync(out, `${JSON.stringify({ version: 1, roadmap: result.roadmapConfig }, null, 2)}\n`);
+                    const roadmapOut = result.roadmap ? (flags.get("roadmap-out") ?? "roadmap.json") : undefined;
+                    if (roadmapOut) writeFileSync(roadmapOut, `${JSON.stringify(result.roadmap, null, 2)}\n`);
+                    io.stdout(renderDetection(result, repository, roadmap.number, out, roadmapOut));
+                    return 0;
+                }
                 const roadmapConfig = loadEraConfig(flags)?.roadmap;
                 const roadmap = await loadRoadmapSource(repository, flags, roadmapConfig);
                 const result = await post(api, io, "/v1/roadmap-validations", { repository, roadmap, roadmapConfig });
@@ -317,6 +345,32 @@ function observationFromFlags(flags: Map<string, string>): Observation {
         observedAt: new Date().toISOString(),
         source: flags.get("source") ?? "manual",
     };
+}
+
+function renderDetection(
+    result: RoadmapDetectionResponse,
+    repository: string,
+    issue: number,
+    out: string,
+    roadmapOut: string | undefined,
+): string {
+    const lines = [
+        `Detected ${result.format} roadmap (${result.confidence} confidence, ${result.model}): ${result.rationale}`,
+        "",
+        "| Issue | Kind | State | Group | Title |",
+        "| --- | --- | --- | --- | --- |",
+        ...result.items.map(
+            (item) =>
+                `| #${item.issue} | ${item.kind} | ${item.state} | ${item.group ?? ""} | ${item.title.replaceAll("|", "\\|")} |`,
+        ),
+        "",
+        `${result.items.length} items, ${result.dependencies.length} dependencies, ${result.milestones.length} milestones.`,
+    ];
+    for (const diagnostic of result.diagnostics) lines.push(`- ${diagnostic}`);
+    lines.push("", `Wrote ${out}${roadmapOut ? ` and ${roadmapOut}` : ""}. Review and edit, then validate:`);
+    const source = roadmapOut ? `--body ${roadmapOut}` : `--issue ${issue}`;
+    lines.push(`  era roadmap validate --repository ${repository} ${source} --config ${out}`);
+    return lines.join("\n");
 }
 
 function renderAccuracy(reports: readonly AccuracyReport[]): string {

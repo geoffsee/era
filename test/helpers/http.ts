@@ -22,6 +22,7 @@ import { AccuracyService } from "../../src/app/services/accuracy-service.ts";
 import { AuthService } from "../../src/app/services/auth-service.ts";
 import { ForecastService } from "../../src/app/services/forecast-application-service.ts";
 import { InferenceService } from "../../src/app/services/inference-service.ts";
+import { RoadmapDetectionService } from "../../src/app/services/roadmap-detection-service.ts";
 import { env, oidc } from "../cloudflare.ts";
 
 export type TrackerDeps = {
@@ -43,6 +44,7 @@ const WORKER_GRAPH: ReadonlyArray<Parameters<Container["register"]>[0]> = [
     ObservationRepository,
     AccuracyService,
     InferenceService,
+    RoadmapDetectionService,
     ForecastService,
     AuthService,
     AuthController,

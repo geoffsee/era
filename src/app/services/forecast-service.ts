@@ -1,5 +1,5 @@
 import { estimateRoadmap, type RoadmapEstimate } from "../../core/forecast/estimator.ts";
-import type { ForecastRequest, JsonEstimate } from "../../core/forecast/forecast-contract.ts";
+import type { ForecastRequest, JsonEstimate, RoadmapDetectionRequest } from "../../core/forecast/forecast-contract.ts";
 import { parseForecastPlan } from "../../core/forecast/forecast-plan.ts";
 import { INFERENCE_LIMITS, parseInferenceConfig } from "../../core/forecast/inference.ts";
 import { renderEstimate } from "../../core/forecast/format.ts";
@@ -69,6 +69,21 @@ export function validateRoadmapRequest(value: unknown) {
             ),
         };
     });
+}
+
+export function parseRoadmapDetectionRequest(value: unknown): RoadmapDetectionRequest {
+    const input = object(value, "roadmap detection request");
+    const repository = repositoryField(input.repository);
+    const source = object(input.roadmap, "roadmap");
+    text(source.body, "roadmap body");
+    const titles = source.titles ?? {};
+    issueStrings(titles, "roadmap titles");
+    const number = source.number === undefined ? 0 : integer(source.number, "roadmap number", 0);
+    const title = typeof source.title === "string" && source.title.trim() ? source.title : "Roadmap";
+    return {
+        repository,
+        roadmap: { number, title, body: source.body as string, titles: titles as Record<string, string> },
+    };
 }
 
 export function calculateForecast(input: ForecastRequest, now: string) {

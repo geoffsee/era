@@ -5,11 +5,11 @@ Source is grouped into `app/` for the Worker application, `core/` for domain log
 | Directory | Purpose |
 | --- | --- |
 | `app/controllers/` | Authentication, forecast, and tracking HTTP handlers |
-| `app/services/` | Login and token management, forecast validation and calculation, in-context inference, and accuracy orchestration |
+| `app/services/` | Login and token management, forecast validation and calculation, in-context inference, roadmap structure detection, and accuracy orchestration |
 | `app/repositories/` | Prediction and observation repositories, authentication storage, and historical/GitHub data access |
 | `core/auth/` | Credential strategy, repository authorization, GitHub OIDC verification, CLI login, and local credential storage |
 | `core/forecast/` | Estimation, cost accounting, calibration validation, forecast plans, inference prompts and validation, API contracts, and reports |
-| `core/roadmap/` | Roadmap parsing, configurable formats, normalization, and dependency graphs |
+| `core/roadmap/` | Roadmap parsing, configurable formats, normalization, dependency graphs, and structure detection prompts |
 | `core/history/` | Historical usage models and dataset validation tests |
 | `core/usage/` | Author-session and review usage extraction and attribution |
 | `core/github/` | GitHub API client |
@@ -19,7 +19,7 @@ Source is grouped into `app/` for the Worker application, `core/` for domain log
 
 [`app/main.ts`](app/main.ts) publishes the Worker bindings through `@di-framework/cloudflare`, which registers a lazy `CloudflareEnvironment` factory and classifies each binding, with the names in `SECRET_NAMES` marked as secrets. [`app/configuration.ts`](app/configuration.ts) is the only module that interprets bindings: its `WorkerConfiguration` beans depend on `CloudflareEnvironment` and derive `SQL_DATABASE` from `DB`, `WORKER_SETTINGS` and `AUTH_CONFIG` from the vars and secrets, and `CHAT_MODEL` from `ANTHROPIC_API_KEY` (an `@di-framework/ai` `AnthropicChatModel`), else from the `AI` binding (a `WorkersAiChatModel`), else `undefined`. `main.ts` then starts an `ApplicationContext` with that configuration, resolves the forecast and tracking controllers so a missing registration fails at startup, and exports the Worker `fetch` and `scheduled` handlers. [`app/http.ts`](app/http.ts) applies the forecast schema once per isolate, configures authentication middleware, resolves controllers from the container, and maps `HttpError` and `InputError` to HTTP statuses in one place.
 
-Decorators register controllers, services, and repositories automatically, and every component is a singleton. Controllers receive services through constructor injection, services receive repositories the same way, repositories and `AuthStore` inject `SQL_DATABASE`, `AuthService` injects `AUTH_CONFIG`, and `InferenceService` injects `CHAT_MODEL`. `ForecastService` calls `InferenceService` only when a request configures inference fields; the pure prompt, schema, and validation code lives in `core/forecast/inference.ts`, and `@di-framework/ai` is imported only by the configuration and the inference service. Application code never calls `new` on a component and never reads bindings outside the configuration class.
+Decorators register controllers, services, and repositories automatically, and every component is a singleton. Controllers receive services through constructor injection, services receive repositories the same way, repositories and `AuthStore` inject `SQL_DATABASE`, `AuthService` injects `AUTH_CONFIG`, and `InferenceService` and `RoadmapDetectionService` inject `CHAT_MODEL`. `ForecastService` calls `InferenceService` only when a request configures inference fields; the pure prompt, schema, and validation code lives in `core/forecast/inference.ts`, and `@di-framework/ai` is imported only by the configuration and the inference service. Application code never calls `new` on a component and never reads bindings outside the configuration class.
 
 `PredictionRepository` and `ObservationRepository` extend `@di-framework/repo`'s `EntityRepository` directly and supply their storage adapters in their constructors. They inherit CRUD operations and define repository-scoped queries. `AccuracyService` coordinates these repositories; controllers access persistence through services. Shared persistence code does not depend on tracking or authentication.
 
