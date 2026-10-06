@@ -5,6 +5,10 @@ export type Prediction = {
     metric: string;
     predicted: number;
     recordedAt: string;
+    /** Calibration snapshot current when the row was recorded. */
+    snapshotId?: string;
+    /** Lane of a child forecast; evidence for that lane's multiplier. */
+    lane?: string;
 };
 
 export type Observation = {
@@ -35,6 +39,12 @@ export type ScoredPair = {
     metric: string;
     predicted: number;
     actual: number;
+};
+
+/** A scored pair plus the observation time and optional lane, for calibration evidence. */
+export type LedgerPair = ScoredPair & {
+    observedAt: string;
+    lane?: string;
 };
 
 /** Rejected caller input; the HTTP edge answers 400 with the message. */

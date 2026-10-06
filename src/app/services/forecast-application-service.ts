@@ -1,4 +1,5 @@
 import { AccuracyService } from "./accuracy-service.ts";
+import { CalibrationService } from "./calibration-service.ts";
 import { InferenceService } from "./inference-service.ts";
 import { Component, Container } from "@di-framework/core/decorators";
 import {
@@ -24,6 +25,7 @@ export class ForecastService {
     constructor(
         @Component(AccuracyService) private readonly accuracyService: AccuracyService,
         @Component(InferenceService) private readonly inference: InferenceService,
+        @Component(CalibrationService) private readonly calibration: CalibrationService,
     ) {}
 
     validate(value: unknown, identity: Identity | undefined) {
@@ -33,14 +35,36 @@ export class ForecastService {
     async estimate(value: unknown, identity: Identity | undefined) {
         const input = parseForecastRequest(authorizedContent(value, identity));
         const now = new Date().toISOString();
-        const result = calculateForecast(input, now);
+        const draft = calculateForecast(input, now);
+        const override = await storage(() =>
+            this.calibration.revise(
+                input.repository,
+                {
+                    gammaPerPoint: draft.estimate.calibration.gammaPerPoint,
+                    sampleCount: draft.estimate.calibration.sampleCount,
+                    lanes: [
+                        ...new Set(
+                            draft.estimate.children.map((child) => child.laneId).filter((lane) => lane.length > 0),
+                        ),
+                    ],
+                },
+                now,
+            ),
+        );
+        const result = calculateForecast(input, now, override);
         const inferred = input.inference
             ? await this.inference.infer(input.inference, input, result.estimate.children)
             : undefined;
         // Inferred numeric fields join the ledger only for identified roadmaps, like the deterministic rows.
+        const snapshotId = result.calibrationSnapshot?.snapshotId;
         const predictions =
             inferred && result.estimate.issueNumber !== 0
-                ? [...result.predictions, ...inferredPredictions(input.repository, inferred, now)]
+                ? [
+                      ...result.predictions,
+                      ...inferredPredictions(input.repository, inferred, now).map((row) =>
+                          snapshotId ? { ...row, snapshotId } : row,
+                      ),
+                  ]
                 : result.predictions;
         const report = inferred ? `${result.report}\n${renderInferred(inferred)}` : result.report;
         const stored = input.record ? await storage(() => this.accuracyService.recordPredictions(predictions)) : 0;

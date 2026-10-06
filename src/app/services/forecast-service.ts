@@ -1,3 +1,4 @@
+import { alignedModel, type CalibrationOverride, renderCalibration } from "../../core/forecast/calibration.ts";
 import { estimateRoadmap, type RoadmapEstimate } from "../../core/forecast/estimator.ts";
 import type { ForecastRequest, JsonEstimate, RoadmapDetectionRequest } from "../../core/forecast/forecast-contract.ts";
 import { parseForecastPlan } from "../../core/forecast/forecast-plan.ts";
@@ -86,24 +87,12 @@ export function parseRoadmapDetectionRequest(value: unknown): RoadmapDetectionRe
     };
 }
 
-export function calculateForecast(input: ForecastRequest, now: string) {
-    const estimate = asInput(() =>
-        estimateRoadmap({
-            issueNumber: input.roadmap.number,
-            issueTitle: input.roadmap.title,
-            issueBody: input.roadmap.body,
-            titles: new Map(Object.entries(input.roadmap.titles ?? {}).map(([id, title]) => [Number(id), title])),
-            issueStates: input.roadmap.states
-                ? new Map(Object.entries(input.roadmap.states).map(([id, state]) => [Number(id), state]))
-                : undefined,
-            history: input.history.pullRequests,
-            reviewPool: input.history.reviewPool,
-            authorOverhead: input.history.authorOverhead,
-            historyGeneratedAt: input.history.generatedAt,
-            plan: input.plan,
-            roadmapConfig: input.roadmapConfig,
-        }),
-    );
+export function calculateForecast(input: ForecastRequest, now: string, override?: CalibrationOverride) {
+    const request = roadmapInput(input);
+    const estimate = asInput(() => estimateRoadmap(request));
+    const aligned = override
+        ? asInput(() => estimateRoadmap({ ...request, calibrationOverride: override }))
+        : undefined;
     const { labels, epicTokens, epicPoints, epicReviewRatio, epicReviewCicdSeconds, ...calibration } =
         estimate.calibration;
     const serialized: JsonEstimate = {
@@ -118,11 +107,40 @@ export function calculateForecast(input: ForecastRequest, now: string) {
         },
     };
     assertFiniteResult(serialized);
+    const predictions =
+        estimate.issueNumber === 0
+            ? []
+            : [
+                  ...predictionsFromEstimate(input.repository, estimate, now, override?.snapshotId),
+                  ...(aligned && override
+                      ? predictionsFromEstimate(input.repository, aligned, now, override.snapshotId, true)
+                      : []),
+              ];
+    assertFiniteResult(predictions);
     return {
         repository: input.repository,
         estimate: serialized,
-        report: renderEstimate(estimate, input.repository),
-        predictions: estimate.issueNumber === 0 ? [] : predictionsFromEstimate(input.repository, estimate, now),
+        report: `${renderEstimate(estimate, input.repository)}${override ? `\n${renderCalibration(override)}` : ""}`,
+        predictions,
+        ...(override ? { calibrationSnapshot: override } : {}),
+    };
+}
+
+function roadmapInput(input: ForecastRequest) {
+    return {
+        issueNumber: input.roadmap.number,
+        issueTitle: input.roadmap.title,
+        issueBody: input.roadmap.body,
+        titles: new Map(Object.entries(input.roadmap.titles ?? {}).map(([id, title]) => [Number(id), title])),
+        issueStates: input.roadmap.states
+            ? new Map(Object.entries(input.roadmap.states).map(([id, state]) => [Number(id), state]))
+            : undefined,
+        history: input.history.pullRequests,
+        reviewPool: input.history.reviewPool,
+        authorOverhead: input.history.authorOverhead,
+        historyGeneratedAt: input.history.generatedAt,
+        plan: input.plan,
+        roadmapConfig: input.roadmapConfig,
     };
 }
 
@@ -271,14 +289,23 @@ function asInput<T>(fn: () => T): T {
     }
 }
 
-function predictionsFromEstimate(repository: string, estimate: RoadmapEstimate, recordedAt: string): Prediction[] {
-    const row = (subject: number, model: string, metric: string, predicted: number): Prediction => ({
+function predictionsFromEstimate(
+    repository: string,
+    estimate: RoadmapEstimate,
+    recordedAt: string,
+    snapshotId?: string,
+    aligned = false,
+): Prediction[] {
+    const model = (name: string) => (aligned ? alignedModel(name) : name);
+    const row = (subject: number, name: string, metric: string, predicted: number, lane?: string): Prediction => ({
         repository,
         subject: `issue:${subject}`,
-        model,
+        model: model(name),
         metric,
         predicted,
         recordedAt,
+        ...(snapshotId ? { snapshotId } : {}),
+        ...(lane ? { lane } : {}),
     });
     return [
         row(estimate.issueNumber, "token-threshold", "tokens", estimate.rawTokens),
@@ -286,8 +313,8 @@ function predictionsFromEstimate(repository: string, estimate: RoadmapEstimate, 
         row(estimate.issueNumber, "seeagent", "story_points", estimate.storyPoints),
         row(estimate.issueNumber, "delivery-cost-v2", "usd_subtotal", estimate.pricedSubtotalUsd),
         ...estimate.children.flatMap((child) => [
-            row(child.issue, "token-threshold", "tokens", child.tokens),
-            row(child.issue, "seeagent", "story_points", child.storyPoints),
+            row(child.issue, "token-threshold", "tokens", child.tokens, child.laneId || undefined),
+            row(child.issue, "seeagent", "story_points", child.storyPoints, child.laneId || undefined),
         ]),
     ];
 }

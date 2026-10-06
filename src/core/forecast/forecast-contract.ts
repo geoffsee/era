@@ -1,3 +1,4 @@
+import type { CalibrationOverride } from "./calibration.ts";
 import type { Calibration, RoadmapEstimate } from "./estimator.ts";
 import type { ForecastPlan } from "./forecast-plan.ts";
 import type { InferenceConfig, InferenceUsage, InferredEstimates } from "./inference.ts";
@@ -37,6 +38,8 @@ export type ForecastResponse = {
     predictions: Prediction[];
     /** Present when the request configured inference fields. */
     inferred?: InferredEstimates;
+    /** Factor vector read for this estimate, including evidence counts and the snapshot id. */
+    calibrationSnapshot?: CalibrationOverride;
     stored: number;
 };
 

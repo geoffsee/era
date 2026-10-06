@@ -63,6 +63,8 @@ function parsePrediction(input: unknown, now: string): Prediction {
         metric: assertToken(stringField(record, "metric"), "metric"),
         predicted: assertFinite(record.predicted, "predicted"),
         recordedAt: assertTimestamp(optionalString(record, "recordedAt"), now),
+        ...optionalToken(record, "snapshotId", "snapshotId"),
+        ...optionalToken(record, "lane", "lane"),
     };
 }
 
@@ -93,7 +95,17 @@ function stringField(record: Record<string, unknown>, key: string): string {
 
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {
     const value = record[key];
-    if (value === undefined) return undefined;
+    if (value === undefined || value === null || value === "") return undefined;
     if (typeof value !== "string") throw new InputError(`${key} must be a string`);
     return value;
+}
+
+function optionalToken(
+    record: Record<string, unknown>,
+    key: "snapshotId" | "lane",
+    label: string,
+): { snapshotId: string } | { lane: string } | undefined {
+    const value = optionalString(record, key);
+    if (value === undefined) return undefined;
+    return { [key]: assertToken(value, label) } as { snapshotId: string } | { lane: string };
 }
