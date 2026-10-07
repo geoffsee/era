@@ -40,6 +40,7 @@ function fixture(overrides: Partial<AuthConfig> = {}) {
     const fetchImpl = async function (this: unknown, input: string | URL | Request, init?: RequestInit) {
         expect(this).toBeUndefined();
         const url = new URL(String(input));
+        if (active.GITHUB_URL) expect(url.origin).toBe(new URL(active.GITHUB_URL).origin);
         if (url.pathname === "/login/oauth/access_token") {
             const fields = new URLSearchParams(String(init?.body));
             expect(new Headers(init?.headers).get("user-agent")).toBe("era");
@@ -153,9 +154,12 @@ test("verification form-action allows a configured loopback GitHub origin and re
     );
     expect(await policy("https://github.com")).toContain("form-action 'self' https://github.com;");
     expect(await policy("https://github.com")).not.toContain("https://github.com https://github.com");
-    const unsafe = await policy("http://evil.example");
-    expect(unsafe).toContain("form-action 'self' https://github.com;");
-    expect(unsafe).not.toContain("evil.example");
+    expect(() => fixture({ GITHUB_URL: "http://evil.example" })).toThrow(
+        "GITHUB_URL must be an HTTPS URL (or HTTP loopback for development)",
+    );
+    expect(() => fixture({ GITHUB_URL: "https://user:secret@github.example" })).toThrow(
+        "GITHUB_URL must be an HTTPS URL (or HTTP loopback for development)",
+    );
     const signedIn = fixture({ GITHUB_URL: "http://localhost:8080" });
     const begin = await signedIn.start();
     await signedIn.browser(begin.userCode);

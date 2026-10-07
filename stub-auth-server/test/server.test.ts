@@ -273,6 +273,66 @@ describe("Stub Auth Server (di-framework + bun)", () => {
             expect(refreshData.access_token.startsWith("ghu_refreshed_")).toBe(true);
         });
 
+        it("rejects missing, unknown, reused, mismatched, and unverified GitHub codes", async () => {
+            const exchange = (body: Record<string, string>) =>
+                stub.fetch(
+                    new Request("http://localhost:8080/login/oauth/access_token", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: new URLSearchParams(body).toString(),
+                    }),
+                );
+            const missing = await exchange({});
+            expect(missing.status).toBe(400);
+            expect(await missing.json()).toEqual({ error: "bad_verification_code" });
+
+            const unknown = await exchange({ code: "gh_code_missing" });
+            expect(unknown.status).toBe(400);
+
+            const { codeVerifier, codeChallenge } = generatePkce();
+            const redirectUri = "http://localhost:8787/auth/github/callback";
+            const authorize = async () => {
+                const authUrl = new URL("http://localhost:8080/login/oauth/authorize");
+                authUrl.searchParams.set("redirect_uri", redirectUri);
+                authUrl.searchParams.set("code_challenge", codeChallenge);
+                authUrl.searchParams.set("code_challenge_method", "S256");
+                const authRes = await stub.fetch(new Request(authUrl.toString()));
+                return new URL(authRes.headers.get("location")!).searchParams.get("code")!;
+            };
+
+            const mismatched = await exchange({
+                code: await authorize(),
+                code_verifier: codeVerifier,
+                redirect_uri: "http://evil.example/callback",
+            });
+            expect(mismatched.status).toBe(400);
+
+            const code = await authorize();
+            const unverified = await exchange({ code, redirect_uri: redirectUri });
+            expect(unverified.status).toBe(400);
+
+            const wrongVerifier = await exchange({
+                code: await authorize(),
+                code_verifier: "not-the-verifier",
+                redirect_uri: redirectUri,
+            });
+            expect(wrongVerifier.status).toBe(400);
+
+            const acceptedCode = await authorize();
+            const accepted = await exchange({
+                code: acceptedCode,
+                code_verifier: codeVerifier,
+                redirect_uri: redirectUri,
+            });
+            expect(accepted.status).toBe(200);
+            const reused = await exchange({
+                code: acceptedCode,
+                code_verifier: codeVerifier,
+                redirect_uri: redirectUri,
+            });
+            expect(reused.status).toBe(400);
+        });
+
         it("emulates GitHub REST API endpoints (/user, /repos, collaborators, installations)", async () => {
             const token = "ghu_dummy_token";
 

@@ -246,19 +246,17 @@ export function createStubAuthServer(options: StubAuthServerOptions = {}) {
             const code = params.get("code");
             const codeVerifier = params.get("code_verifier");
             const stored = code ? githubAuthCodes.get(code) : undefined;
-
-            if (code && stored) {
-                githubAuthCodes.delete(code);
-                if (stored.codeChallenge && codeVerifier) {
-                    const valid = await verifyS256(codeVerifier, stored.codeChallenge);
-                    if (!valid) {
-                        return new Response(JSON.stringify({ error: "bad_verification_code" }), {
-                            status: 400,
-                            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-                        });
-                    }
-                }
-            }
+            const reject = () =>
+                new Response(JSON.stringify({ error: "bad_verification_code" }), {
+                    status: 400,
+                    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+                });
+            if (!code || !stored) return reject();
+            githubAuthCodes.delete(code);
+            const redirectUri = params.get("redirect_uri");
+            if (redirectUri !== null && redirectUri !== stored.redirectUri) return reject();
+            if (stored.codeChallenge && (!codeVerifier || !(await verifyS256(codeVerifier, stored.codeChallenge))))
+                return reject();
 
             return new Response(
                 JSON.stringify({

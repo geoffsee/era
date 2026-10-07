@@ -52,6 +52,22 @@ export type LoginFlow = {
 };
 const FLOW_SECONDS = 600;
 const KEY_SECONDS = 30 * 86400;
+const GITHUB_URL_ERROR = "GITHUB_URL must be an HTTPS URL (or HTTP loopback for development)";
+
+/** Origin used for OAuth and GitHub API calls. Non-loopback HTTP would send bearer tokens in cleartext. */
+function githubBaseUrl(githubUrl?: string): string | undefined {
+    if (!githubUrl) return undefined;
+    let url: URL;
+    try {
+        url = new URL(githubUrl);
+    } catch {
+        throw new Error(GITHUB_URL_ERROR);
+    }
+    const loopbackHttp = url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if ((url.protocol !== "https:" && !loopbackHttp) || url.username || url.password || url.search || url.hash)
+        throw new Error(GITHUB_URL_ERROR);
+    return url.origin;
+}
 
 @Container()
 export class AuthService {
@@ -59,6 +75,7 @@ export class AuthService {
     readonly sessions;
     readonly csrf;
     readonly origin: string;
+    private readonly githubBase?: string;
     private readonly cryptoKey: Promise<CryptoKey>;
     constructor(
         @Component(AuthRepository) readonly store: AuthRepository,
@@ -86,19 +103,19 @@ export class AuthService {
         toSecretBytes(config.AUTH_SECRET);
         this.origin = url.origin;
         this.cryptoKey = deriveAesKey(config.AUTH_SECRET, "era:v1:github-credentials");
-        const githubBase = config.GITHUB_URL?.replace(/\/$/, "");
+        this.githubBase = githubBaseUrl(config.GITHUB_URL);
         const baseProvider = githubProvider({
             clientId: config.GITHUB_CLIENT_ID,
             clientSecret: config.GITHUB_CLIENT_SECRET,
             redirectUri: `${this.origin}/auth/github/callback`,
             scopes: [],
         });
-        const provider = githubBase
+        const provider = this.githubBase
             ? {
                   ...baseProvider,
-                  authorizationEndpoint: `${githubBase}/login/oauth/authorize`,
-                  tokenEndpoint: `${githubBase}/login/oauth/access_token`,
-                  userinfoEndpoint: `${githubBase}/user`,
+                  authorizationEndpoint: `${this.githubBase}/login/oauth/authorize`,
+                  tokenEndpoint: `${this.githubBase}/login/oauth/access_token`,
+                  userinfoEndpoint: `${this.githubBase}/user`,
               }
             : baseProvider;
         this.client = oauthClient(provider, {
@@ -401,7 +418,7 @@ export class AuthService {
         let response: Response;
         try {
             const fetchImpl = this.fetchImpl;
-            const apiBase = this.config.GITHUB_URL?.replace(/\/$/, "") ?? "https://api.github.com";
+            const apiBase = this.githubBase ?? "https://api.github.com";
             response = await fetchImpl(`${apiBase}${path}`, {
                 headers: {
                     authorization: `Bearer ${token}`,
