@@ -1,6 +1,6 @@
 {
   "name": "@era.js/era",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CLI client for ERA roadmap forecasts and estimate accuracy tracking",
   "type": "module",
   "license": "UNLICENSED",
