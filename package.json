@@ -27,14 +27,19 @@
   "bin": {
     "era": "dist/cli.js"
   },
+  "workspaces": [
+    "stub-auth-server"
+  ],
   "scripts": {
     "start": "bun index.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
+    "test:auth-server": "bun --cwd stub-auth-server test",
+    "typecheck": "tsc --noEmit && bun --cwd stub-auth-server typecheck",
     "format": "biome format .",
     "lint": "biome lint .",
     "cli": "bun src/cli/cli.ts",
     "api": "wrangler dev",
+    "auth:server": "bun --cwd stub-auth-server start",
     "deploy": "wrangler deploy",
     "build": "bun build src/cli/bin.ts --target node --define 'import.meta.main=false' --outfile dist/cli.js",
     "verify-package": "bun run build && bun scripts/verify-package.ts",
@@ -42,10 +47,13 @@
     "hooks": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/github": "^9.1.1",
     "@biomejs/biome": "^2.5.15",
     "@cloudflare/workers-types": "^5.20261002.1",
     "@di-framework/ai": "6.0.3",
     "@di-framework/auth": "6.0.3",
+    "@di-framework/biome": "^6.0.5",
     "@di-framework/cloudflare": "6.0.7",
     "@di-framework/core": "^6.0.3",
     "@di-framework/http": "^6.0.3",

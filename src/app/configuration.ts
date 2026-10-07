@@ -62,6 +62,7 @@ export function workerSettings(bindings: CloudflareEnvironment): WorkerSettings 
                   GITHUB_CLIENT_ID: text(bindings, "GITHUB_CLIENT_ID") ?? "",
                   GITHUB_CLIENT_SECRET: text(bindings, "GITHUB_CLIENT_SECRET") ?? "",
                   AUTH_SECRET: text(bindings, "AUTH_SECRET") ?? "",
+                  GITHUB_URL: text(bindings, "GITHUB_URL"),
               }
             : undefined,
     };

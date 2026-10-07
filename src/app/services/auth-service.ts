@@ -29,6 +29,7 @@ export interface AuthConfig {
     GITHUB_CLIENT_ID: string;
     GITHUB_CLIENT_SECRET: string;
     AUTH_SECRET: string;
+    GITHUB_URL?: string;
 }
 type Connection = {
     login: string;
@@ -51,6 +52,22 @@ export type LoginFlow = {
 };
 const FLOW_SECONDS = 600;
 const KEY_SECONDS = 30 * 86400;
+const GITHUB_URL_ERROR = "GITHUB_URL must be an HTTPS URL (or HTTP loopback for development)";
+
+/** Origin used for OAuth and GitHub API calls. Non-loopback HTTP would send bearer tokens in cleartext. */
+function githubBaseUrl(githubUrl?: string): string | undefined {
+    if (!githubUrl) return undefined;
+    let url: URL;
+    try {
+        url = new URL(githubUrl);
+    } catch {
+        throw new Error(GITHUB_URL_ERROR);
+    }
+    const loopbackHttp = url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if ((url.protocol !== "https:" && !loopbackHttp) || url.username || url.password || url.search || url.hash)
+        throw new Error(GITHUB_URL_ERROR);
+    return url.origin;
+}
 
 @Container()
 export class AuthService {
@@ -58,6 +75,7 @@ export class AuthService {
     readonly sessions;
     readonly csrf;
     readonly origin: string;
+    private readonly githubBase?: string;
     private readonly cryptoKey: Promise<CryptoKey>;
     constructor(
         @Component(AuthRepository) readonly store: AuthRepository,
@@ -65,8 +83,16 @@ export class AuthService {
         readonly fetchImpl: typeof fetch = fetch,
     ) {
         const url = new URL(config.PUBLIC_API_URL);
-        if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash)
-            throw new Error("PUBLIC_API_URL must be an HTTPS origin");
+        const isLoopbackHttp = url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+        if (
+            (url.protocol !== "https:" && !isLoopbackHttp) ||
+            url.username ||
+            url.password ||
+            url.pathname !== "/" ||
+            url.search ||
+            url.hash
+        )
+            throw new Error("PUBLIC_API_URL must be an HTTPS origin (or HTTP loopback for development)");
         if (
             !/^\d+$/.test(config.GITHUB_APP_ID) ||
             !/^[a-zA-Z0-9-]+$/.test(config.GITHUB_APP_SLUG) ||
@@ -77,26 +103,33 @@ export class AuthService {
         toSecretBytes(config.AUTH_SECRET);
         this.origin = url.origin;
         this.cryptoKey = deriveAesKey(config.AUTH_SECRET, "era:v1:github-credentials");
-        this.client = oauthClient(
-            githubProvider({
-                clientId: config.GITHUB_CLIENT_ID,
-                clientSecret: config.GITHUB_CLIENT_SECRET,
-                redirectUri: `${this.origin}/auth/github/callback`,
-                scopes: [],
-            }),
-            {
-                state: store.state(),
-                fetch: (async (input: string | URL | Request, init?: RequestInit) => {
-                    const headers = new Headers(init?.headers);
-                    headers.set("user-agent", "era");
-                    const response = await fetchImpl(input, { ...init, headers, signal: AbortSignal.timeout(10000) });
-                    if (response.status >= 500 || response.status === 429 || response.headers.has("retry-after"))
-                        throw new HttpError("GitHub authentication is unavailable; retry", 503);
-                    return response;
-                }) as typeof fetch,
-                now: store.now,
-            },
-        );
+        this.githubBase = githubBaseUrl(config.GITHUB_URL);
+        const baseProvider = githubProvider({
+            clientId: config.GITHUB_CLIENT_ID,
+            clientSecret: config.GITHUB_CLIENT_SECRET,
+            redirectUri: `${this.origin}/auth/github/callback`,
+            scopes: [],
+        });
+        const provider = this.githubBase
+            ? {
+                  ...baseProvider,
+                  authorizationEndpoint: `${this.githubBase}/login/oauth/authorize`,
+                  tokenEndpoint: `${this.githubBase}/login/oauth/access_token`,
+                  userinfoEndpoint: `${this.githubBase}/user`,
+              }
+            : baseProvider;
+        this.client = oauthClient(provider, {
+            state: store.state(),
+            fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+                const headers = new Headers(init?.headers);
+                headers.set("user-agent", "era");
+                const response = await fetchImpl(input, { ...init, headers, signal: AbortSignal.timeout(10000) });
+                if (response.status >= 500 || response.status === 429 || response.headers.has("retry-after"))
+                    throw new HttpError("GitHub authentication is unavailable; retry", 503);
+                return response;
+            }) as typeof fetch,
+            now: store.now,
+        });
         this.sessions = sessionManager({
             store: store.sessions(),
             now: store.now,
@@ -385,7 +418,8 @@ export class AuthService {
         let response: Response;
         try {
             const fetchImpl = this.fetchImpl;
-            response = await fetchImpl(`https://api.github.com${path}`, {
+            const apiBase = this.githubBase ?? "https://api.github.com";
+            response = await fetchImpl(`${apiBase}${path}`, {
                 headers: {
                     authorization: `Bearer ${token}`,
                     accept: "application/vnd.github+json",

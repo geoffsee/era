@@ -53,6 +53,42 @@ The existing `API_TOKEN` remains the operator admin credential. GitHub Actions c
 
 The Worker refreshes expiring GitHub credentials automatically. Invalid refresh credentials require a new login. Rotating `AUTH_SECRET` requires users to sign in again because old provider credentials cannot be decrypted under the new secret. Configure and qualify the Worker before distributing the new CLI.
 
+## Local development with stub auth server
+
+For offline and local development without configuring a live GitHub App, the repository includes `@era.js/stub-auth-server` in `./stub-auth-server`, built with `@di-framework/auth/server`.
+
+The stub auth server emulates GitHub's OAuth authorization endpoint, access token endpoint, `/user` profile, repository collaborator permissions, and GitHub App installation queries.
+
+1. **Start the stub auth server**:
+   ```sh
+   bun run auth:server
+   ```
+   This runs on `http://localhost:8080`.
+
+2. **Configure `.dev.vars`** (see `.dev.vars.example`):
+   ```ini
+   PUBLIC_API_URL=http://localhost:8787
+   GITHUB_URL=http://localhost:8080
+   GITHUB_APP_ID=5200437
+   GITHUB_APP_SLUG=era-roadmap
+   GITHUB_CLIENT_ID=dev-client
+   GITHUB_CLIENT_SECRET=dev-secret
+   AUTH_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+   API_TOKEN=edc25a992630d39b9a6d6350e65888485be489ee63befe1e3b26e65a04c96c40
+   ```
+
+3. **Start the local Worker**:
+   ```sh
+   bun run api
+   ```
+   Wrangler serves the API on `http://localhost:8787`.
+
+4. **Authenticate via CLI**:
+   ```sh
+   bun src/cli/cli.ts login --repository octo/example --api http://localhost:8787
+   ```
+   Opening the verification link in the browser completes approval through the stub auth server and saves the repository-scoped API key locally. Chromium applies `form-action` to that OAuth redirect, so the verification page allows the `GITHUB_URL` origin in addition to this Worker and `https://github.com`. Production does not set `GITHUB_URL`, and the approval page stays limited to this Worker.
+
 ## Protocol and storage
 
 The implementation uses `@di-framework/auth` 6.0.3 for GitHub OAuth/PKCE, sessions, CSRF protection, API key issuance and verification, hashing and authenticated encryption. No in-memory production auth stores are used.
