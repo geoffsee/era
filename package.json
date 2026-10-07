@@ -41,7 +41,7 @@
     "api": "wrangler dev",
     "auth:server": "bun --cwd stub-auth-server start",
     "deploy": "wrangler deploy",
-    "build": "bun build src/cli/bin.ts --target node --define 'import.meta.main=false' --outfile dist/cli.js",
+    "build": "bun scripts/build.ts",
     "verify-package": "bun run build && bun scripts/verify-package.ts",
     "prepack": "bun run build",
     "hooks": "git config core.hooksPath .githooks"
