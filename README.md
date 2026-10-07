@@ -41,6 +41,12 @@ npm install -g @era.js/era
 era --help
 ```
 
+An agent reports the tokens from its latest session through the bundled MCP server. Add this server to the agent's MCP configuration:
+
+```json
+{ "mcpServers": { "era": { "command": "bunx", "args": ["@era.js/era", "--mcp"] } } }
+```
+
 ### Quick start
 
 Sign in once per repository. Login works from headless terminals with `--no-browser`; the CLI saves the repository-scoped key, which expires after 30 days.
