@@ -21,6 +21,7 @@ import { loadRoadmapIssue, type RoadmapIssue } from "../app/repositories/github-
 import { loadHistoricalData, loadHistoricalPullRequests } from "../app/repositories/historical-data-repository.ts";
 import type { RoadmapConfig } from "../core/roadmap/roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "../core/tracking/model.ts";
+import { configuredAgents } from "../tools/token-counter-mcp/agents/config.ts";
 import { serve as serveMcp } from "../tools/token-counter-mcp/mcp.ts";
 
 type Io = {
@@ -70,8 +71,14 @@ era --mcp serves the era-tokens MCP on stdin and stdout. Point an agent at \`bun
 export async function runCli(argv: string[], io: Io = defaultIo()): Promise<number> {
     const [command, ...rest] = argv;
     if (command === "--mcp") {
-        await serveMcp();
-        return 0;
+        try {
+            const flags = parseFlags(rest);
+            await serveMcp(flags.get("config"));
+            return 0;
+        } catch (error) {
+            io.stderr(error instanceof Error ? error.message : "command failed");
+            return 1;
+        }
     }
     if (!command || command === "help" || command === "--help" || command === "-h") {
         io.stdout(HELP);
@@ -272,10 +279,11 @@ function loadEraConfig(flags: Map<string, string>): EraConfig | undefined {
         typeof config !== "object" ||
         Array.isArray(config) ||
         config.version !== 1 ||
-        (!config.roadmap && !config.inference) ||
-        Object.keys(config).some((key) => !["version", "roadmap", "inference"].includes(key))
+        (!config.roadmap && !config.inference && !config.agents) ||
+        Object.keys(config).some((key) => !["version", "roadmap", "inference", "agents"].includes(key))
     )
-        throw new Error("ERA config must contain version: 1 and roadmap or inference configuration");
+        throw new Error("ERA config must contain version: 1 and roadmap, inference, or agents configuration");
+    configuredAgents(config);
     return { roadmap: config.roadmap, inference: config.inference };
 }
 
