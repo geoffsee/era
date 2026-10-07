@@ -5,10 +5,13 @@
     "": {
       "name": "@era.js/era",
       "devDependencies": {
+        "@actions/core": "^3.0.1",
+        "@actions/github": "^9.1.1",
         "@biomejs/biome": "^2.5.15",
         "@cloudflare/workers-types": "^5.20261002.1",
         "@di-framework/ai": "6.0.3",
         "@di-framework/auth": "6.0.3",
+        "@di-framework/biome": "^6.0.5",
         "@di-framework/cloudflare": "6.0.7",
         "@di-framework/core": "^6.0.3",
         "@di-framework/http": "^6.0.3",
@@ -18,6 +21,18 @@
         "octokit": "^5.0.5",
         "typescript": "^7",
         "wrangler": "^4.147.0",
+      },
+    },
+    "stub-auth-server": {
+      "name": "@era.js/stub-auth-server",
+      "version": "0.1.0",
+      "dependencies": {
+        "@di-framework/auth": "^6.0.3",
+        "@di-framework/core": "^6.0.3",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^7",
       },
     },
   },
@@ -72,6 +87,8 @@
 
     "@di-framework/auth": ["@di-framework/auth@6.0.3", "", { "peerDependencies": { "@di-framework/core": "^6", "@di-framework/graphql": "^6", "@di-framework/http": "^6", "@di-framework/repo": "^6", "graphql": "^16.8.0 || ^17.0.0", "typescript": "^5" }, "optionalPeers": ["@di-framework/graphql", "@di-framework/http", "@di-framework/repo", "graphql"] }, "sha512-I1V6YDMkISqnDJbMF+X+jbq759X6PXlyRv3MTEUvyqksd8gi32Sv8uvQeYQgFuiOkA4ERAA+yXnaWVCMjhrwLg=="],
 
+    "@di-framework/biome": ["@di-framework/biome@6.0.5", "", { "peerDependencies": { "@biomejs/biome": "^2.5.0" } }, "sha512-veLYlh6TfsM+bFLDiLyC94PZp7bKLmQ3nQu52bh5jLno69tatvhyeTVIhPlOrCTAU7zcjvGUijAYXVVsQcgEMg=="],
+
     "@di-framework/cloudflare": ["@di-framework/cloudflare@6.0.7", "", { "peerDependencies": { "@di-framework/core": "^5", "typescript": "^5" } }, "sha512-j6/nKkp7e2oj+oh8VxxORjdb6qkh/slCFZXMFMs/E7oLUslMMi2RuMYK/AiE+swNKpbOnyR0keugz22U442eag=="],
 
     "@di-framework/core": ["@di-framework/core@6.0.3", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-R9Dv2ZAfXm07eHL68s15bqOjkO9JH0SQishUutpPCi8GxZPHIOrm/I317fni7VVhEb7HIz8V2caNYQXwwhIcww=="],
@@ -81,6 +98,8 @@
     "@di-framework/repo": ["@di-framework/repo@6.0.3", "", { "peerDependencies": { "@di-framework/core": "^6", "typescript": "^5" } }, "sha512-Vz03efP9t3fF6FjVydaY08J6xWKrz5QywgGtzYeRmuo3nGMNTlpoTu9PY9wNVnQKwN86Fbptk16np7tSZDG/rQ=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
+
+    "@era.js/stub-auth-server": ["@era.js/stub-auth-server@workspace:stub-auth-server"],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.28.1", "", { "os": "aix", "cpu": "ppc64" }, "sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ=="],
 
@@ -330,7 +349,7 @@
 
     "content-disposition": ["content-disposition@1.1.0", "", {}, "sha512-5jRCH9Z/+DRP7rkvY83B+yGIGX96OYdJmzngqnw2SBSxqCFPd0w2km3s5iawpGX8krnwSGmF0FW5Nhr0Hfai3g=="],
 
-    "content-type": ["content-type@1.0.5", "", {}, "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA=="],
+    "content-type": ["content-type@3.1.1", "", {}, "sha512-GW4qUsfFo59d0HbUibDlWv5wPz+vAAcaTWbKIuKCf0JkC7wWkSyf8f13IpXn5JkeMlB2P8iTSSIjwXljorg2vA=="],
 
     "cookie": ["cookie@0.7.2", "", {}, "sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w=="],
 
@@ -550,6 +569,8 @@
 
     "@actions/github/@actions/http-client": ["@actions/http-client@3.0.2", "", { "dependencies": { "tunnel": "^0.0.6", "undici": "^6.23.0" } }, "sha512-JP38FYYpyqvUsz+Igqlc/JG6YO9PaKuvqjM3iGvaLqFnJ7TFmcLyy2IDrY0bI0qCQug8E9K+elv5ZNfw62ZJzA=="],
 
+    "@modelcontextprotocol/sdk/content-type": ["content-type@1.0.5", "", {}, "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA=="],
+
     "@octokit/app/@octokit/plugin-paginate-rest": ["@octokit/plugin-paginate-rest@15.0.0", "", { "dependencies": { "@octokit/types": "^17.0.0" }, "peerDependencies": { "@octokit/core": ">=6" } }, "sha512-lw9A9YL5s4VPj+VEx8uMxaxQm2YTgrPDkrLEuZuu18R8TK3oPcXF4K6t52nx6xn1RcogZC9i188sAr/4XYJaQQ=="],
 
     "@octokit/app/@octokit/types": ["@octokit/types@17.0.0", "", { "dependencies": { "@octokit/openapi-types": "^28.0.0" } }, "sha512-ByP1v7YL5SMveFPP7+sj0/ZuWCOOg/Chs4NafOMpq6WNIM/hdGY0S7C0TCGDBWu1aGmOxmUIhMx3cO+IdwYZ1Q=="],
@@ -578,13 +599,13 @@
 
     "@octokit/request/@octokit/types": ["@octokit/types@18.0.0", "", { "dependencies": { "@octokit/openapi-types": "^29.0.1" } }, "sha512-l6bAF43PNxkJp6g+W4PjoUSSkxHomXw2nOum5CTftJz1NlV3vu93NImgOYtLf6CbBUb5j+fiuzW0PPQ5JTSvZA=="],
 
-    "@octokit/request/content-type": ["content-type@3.1.1", "", {}, "sha512-GW4qUsfFo59d0HbUibDlWv5wPz+vAAcaTWbKIuKCf0JkC7wWkSyf8f13IpXn5JkeMlB2P8iTSSIjwXljorg2vA=="],
-
     "@octokit/request-error/@octokit/types": ["@octokit/types@18.0.0", "", { "dependencies": { "@octokit/openapi-types": "^29.0.1" } }, "sha512-l6bAF43PNxkJp6g+W4PjoUSSkxHomXw2nOum5CTftJz1NlV3vu93NImgOYtLf6CbBUb5j+fiuzW0PPQ5JTSvZA=="],
 
     "@terella/action-framework/@di-framework/core": ["@di-framework/core@4.3.3", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-YOyaFVIPrKTUkj9c05b7mGWXQQwbEaVelAe4GWcpS12CGgK7qa7jLgu/gZEBrqA26paPx+oiqKGDLuV0twOwqw=="],
 
     "body-parser/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
+
+    "express/content-type": ["content-type@1.0.5", "", {}, "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA=="],
 
     "miniflare/undici": ["undici@7.29.1", "", {}, "sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q=="],
 

@@ -1,0 +1,20 @@
+{
+  "name": "@era.js/stub-auth-server",
+  "version": "0.1.0",
+  "description": "Local development OAuth 2.0 / OIDC stub authorization server using di-framework and Bun",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@di-framework/auth": "^6.0.3",
+    "@di-framework/core": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^7"
+  }
+}

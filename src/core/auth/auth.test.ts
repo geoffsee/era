@@ -20,7 +20,8 @@ const config: AuthConfig = {
     GITHUB_CLIENT_SECRET: "test-client-secret",
     AUTH_SECRET: "s".repeat(32),
 };
-function fixture() {
+function fixture(overrides: Partial<AuthConfig> = {}) {
+    const active = { ...config, ...overrides };
     const database = new Database(":memory:");
     database.exec(readFileSync(join(import.meta.dir, "../../../migrations/0002_auth.sql"), "utf8"));
     const clock = { now: 1800000000 };
@@ -71,7 +72,7 @@ function fixture() {
         throw new Error(`Unexpected provider URL ${url.pathname}`);
     } as typeof fetch;
     const store = new AuthRepository(new BunSqlDatabase(database), () => clock.now);
-    const service = new AuthService(store, config, fetchImpl);
+    const service = new AuthService(store, active, fetchImpl);
     const accuracyService = createTestAccuracyService();
     const request = (path: string, init?: RequestInit) =>
         handleRequest(new Request(`https://era.test${path}`, init), {
@@ -143,6 +144,22 @@ function fixture() {
     };
     return { database, clock, provider, store, service, request, start, browser, poll, login };
 }
+
+test("verification form-action allows a configured loopback GitHub origin and rejects other HTTP hosts", async () => {
+    const policy = async (githubUrl: string) =>
+        (await fixture({ GITHUB_URL: githubUrl }).request("/auth/cli/verify")).headers.get("content-security-policy");
+    expect(await policy("http://localhost:8080/login")).toContain(
+        "form-action 'self' https://github.com http://localhost:8080;",
+    );
+    expect(await policy("https://github.com")).toContain("form-action 'self' https://github.com;");
+    expect(await policy("https://github.com")).not.toContain("https://github.com https://github.com");
+    const unsafe = await policy("http://evil.example");
+    expect(unsafe).toContain("form-action 'self' https://github.com;");
+    expect(unsafe).not.toContain("evil.example");
+    const signedIn = fixture({ GITHUB_URL: "http://localhost:8080" });
+    const begin = await signedIn.start();
+    await signedIn.browser(begin.userCode);
+});
 
 test("GitHub PKCE login issues a scoped key once and stores only encrypted provider credentials and key hashes", async () => {
     const f = fixture();

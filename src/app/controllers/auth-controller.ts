@@ -11,7 +11,32 @@ const escapeHtml = (value: string) =>
         /[&<>"']/g,
         (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
     );
-function page(title: string, body: string, status = 200, githubRedirect = false): Response {
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Hosts the verification form may navigate to. Chromium applies `form-action` to the
+ * OAuth redirect as well as the form post, so a configured stub origin has to be listed.
+ * Only an origin is emitted, and non-loopback HTTP hosts are omitted.
+ */
+export function githubFormAction(githubUrl?: string): string {
+    const sources = ["'self'", "https://github.com"];
+    const origin = authorizationOrigin(githubUrl);
+    if (origin && !sources.includes(origin)) sources.push(origin);
+    return sources.join(" ");
+}
+function authorizationOrigin(githubUrl?: string): string | undefined {
+    if (!githubUrl) return undefined;
+    try {
+        const url = new URL(githubUrl);
+        const loopbackHttp = url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
+        if ((url.protocol !== "https:" && !loopbackHttp) || url.username || url.password) return undefined;
+        return url.origin;
+    } catch {
+        return undefined;
+    }
+}
+function page(title: string, body: string, status = 200, githubRedirect = false, githubUrl?: string): Response {
+    const formAction = githubRedirect ? githubFormAction(githubUrl) : "'self'";
     return new Response(
         `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`,
         {
@@ -20,7 +45,7 @@ function page(title: string, body: string, status = 200, githubRedirect = false)
                 "content-type": "text/html; charset=utf-8",
                 "cache-control": "no-store",
                 "referrer-policy": "no-referrer",
-                "content-security-policy": `default-src 'none'; form-action 'self'${githubRedirect ? " https://github.com" : ""}; frame-ancestors 'none'; base-uri 'none'`,
+                "content-security-policy": `default-src 'none'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
                 "x-content-type-options": "nosniff",
             },
         },
@@ -102,6 +127,7 @@ export class AuthController {
                     '<p>Enter the code displayed by your ERA CLI. Only approve a login you started yourself.</p><form method="post" action="/auth/github/start"><label>CLI code <input name="code" required maxlength="11" autocomplete="off"></label><button>Continue with GitHub</button></form>',
                     200,
                     true,
+                    service.config.GITHUB_URL,
                 );
             if (path === "/auth/github/start" && request.method === "POST") {
                 if (!checkRequestOrigin(request, { allowedOrigins: [service.origin], requireOriginHeader: true }))

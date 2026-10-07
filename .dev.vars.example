@@ -1,0 +1,18 @@
+# Local development environment configuration for wrangler dev
+# Copy or merge into .dev.vars
+
+# API Token for direct administrative access
+API_TOKEN=edc25a992630d39b9a6d6350e65888485be489ee63befe1e3b26e65a04c96c40
+
+# Point Worker to local wrangler dev endpoint
+PUBLIC_API_URL=http://localhost:8787
+
+# GitHub App configuration (matches stub-auth-server defaults)
+GITHUB_APP_ID=5200437
+GITHUB_APP_SLUG=era-roadmap
+GITHUB_CLIENT_ID=dev-client
+GITHUB_CLIENT_SECRET=dev-secret
+AUTH_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+# Direct Worker GitHub OAuth & API calls to the local stub auth server
+GITHUB_URL=http://localhost:8080
