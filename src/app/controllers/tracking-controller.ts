@@ -1,3 +1,4 @@
+import { useContainer } from "@di-framework/core/container";
 import { Component } from "@di-framework/core/decorators";
 import {
     Controller,
@@ -7,92 +8,104 @@ import {
     type QueryParams,
     type RequestSpec,
     type ResponseSpec,
-    TypedRouter,
 } from "@di-framework/http/portable";
-import { AccuracyService } from "../services/accuracy-service.ts";
-import { assertAccess, HttpError, requestIdentity, type Identity } from "../../core/auth/access.ts";
+import { assertAccess, HttpError, type Identity, requestIdentity } from "../../core/auth/access.ts";
 import { type AccuracyReport, InputError, type Observation, type Prediction } from "../../core/tracking/model.ts";
+import { asHttpRequest, router } from "../http.ts";
+import { AccuracyService } from "../services/accuracy-service.ts";
 
 @Controller()
 export class TrackingController {
-    private readonly router = TypedRouter();
-
     constructor(@Component(AccuracyService) private readonly service: AccuracyService) {}
 
-    fetch(request: Request) {
-        return this.router.fetch(request);
-    }
     @Endpoint({ summary: "Service health" })
-    health = this.router.get("/health", () => json({ ok: true }));
+    static health = router.get("/health", () => json({ ok: true }));
 
     @Endpoint({ summary: "Record estimate predictions for any repository" })
-    recordPredictions = this.router.post<
+    static recordPredictions = router.post<
         RequestSpec<Json<{ predictions: unknown[] }>>,
         ResponseSpec<{ stored: number }>
-    >("/v1/predictions", async (request) => {
-        const rows = arrayField(request.content.predictions, "predictions");
-        guardRows(requestIdentity(request), rows);
-        const stored = await this.service.recordPredictions(rows);
-        return json({ stored });
-    });
+    >("/v1/predictions", (request) =>
+        useContainer().resolve(TrackingController).recordPredictions(asHttpRequest(request)),
+    );
 
     @Endpoint({ summary: "Record observed actuals for any repository" })
-    recordObservations = this.router.post<
+    static recordObservations = router.post<
         RequestSpec<Json<{ observations: unknown[] }>>,
         ResponseSpec<{ stored: number }>
-    >("/v1/observations", async (request) => {
-        const rows = arrayField(request.content.observations, "observations");
-        guardRows(requestIdentity(request), rows);
-        const stored = await this.service.recordObservations(rows);
-        return json({ stored });
-    });
+    >("/v1/observations", (request) =>
+        useContainer().resolve(TrackingController).recordObservations(asHttpRequest(request)),
+    );
 
     @Endpoint({ summary: "Accuracy of stored predictions against observations" })
-    accuracy = this.router.get<
+    static accuracy = router.get<
         RequestSpec<QueryParams<{ repository: string }>>,
         ResponseSpec<{ repository: string; reports: AccuracyReport[] }>
-    >("/v1/accuracy", async (request) => {
-        const repository = requiredRepository(request.query.repository, requestIdentity(request));
-        const reports = await this.service.accuracy(repository);
-        return json({ repository, reports });
-    });
+    >("/v1/accuracy", (request) => useContainer().resolve(TrackingController).accuracy(asHttpRequest(request)));
 
     @Endpoint({ summary: "List repositories that have tracker rows" })
-    repositories = this.router.get<RequestSpec, ResponseSpec<{ repositories: string[] }>>(
+    static repositories = router.get<RequestSpec, ResponseSpec<{ repositories: string[] }>>(
         "/v1/repositories",
-        async (request) => {
-            const repositories = await this.service.repositories();
-            const identity = requestIdentity(request);
-            if (identity && identity.kind !== "admin") {
-                return json({
-                    repositories: repositories.filter((repository) =>
-                        identity.kind === "user"
-                            ? repository.toLowerCase() === identity.repository.toLowerCase()
-                            : repository === identity.repository,
-                    ),
-                });
-            }
-            return json({ repositories });
-        },
+        (request) => useContainer().resolve(TrackingController).repositories(asHttpRequest(request)),
     );
 
     @Endpoint({ summary: "List predictions for one repository" })
-    listPredictions = this.router.get<
+    static listPredictions = router.get<
         RequestSpec<QueryParams<{ repository: string }>>,
         ResponseSpec<{ predictions: Prediction[] }>
-    >("/v1/predictions", async (request) => {
-        const repository = requiredRepository(request.query.repository, requestIdentity(request));
-        return json({ predictions: await this.service.predictions(repository) });
-    });
+    >("/v1/predictions", (request) =>
+        useContainer().resolve(TrackingController).listPredictions(asHttpRequest(request)),
+    );
 
     @Endpoint({ summary: "List observations for one repository" })
-    listObservations = this.router.get<
+    static listObservations = router.get<
         RequestSpec<QueryParams<{ repository: string }>>,
         ResponseSpec<{ observations: Observation[] }>
-    >("/v1/observations", async (request) => {
+    >("/v1/observations", (request) =>
+        useContainer().resolve(TrackingController).listObservations(asHttpRequest(request)),
+    );
+
+    async recordPredictions(request: { content: { predictions: unknown[] } } & Request): Promise<Response> {
+        const rows = arrayField(request.content.predictions, "predictions");
+        guardRows(requestIdentity(request), rows);
+        return json({ stored: await this.service.recordPredictions(rows) });
+    }
+
+    async recordObservations(request: { content: { observations: unknown[] } } & Request): Promise<Response> {
+        const rows = arrayField(request.content.observations, "observations");
+        guardRows(requestIdentity(request), rows);
+        return json({ stored: await this.service.recordObservations(rows) });
+    }
+
+    async accuracy(request: { query: { repository?: string | string[] } } & Request): Promise<Response> {
+        const repository = requiredRepository(request.query.repository, requestIdentity(request));
+        return json({ repository, reports: await this.service.accuracy(repository) });
+    }
+
+    async repositories(request: Request): Promise<Response> {
+        const repositories = await this.service.repositories();
+        const identity = requestIdentity(request);
+        if (identity && identity.kind !== "admin") {
+            return json({
+                repositories: repositories.filter((repository) =>
+                    identity.kind === "user"
+                        ? repository.toLowerCase() === identity.repository.toLowerCase()
+                        : repository === identity.repository,
+                ),
+            });
+        }
+        return json({ repositories });
+    }
+
+    async listPredictions(request: { query: { repository?: string | string[] } } & Request): Promise<Response> {
+        const repository = requiredRepository(request.query.repository, requestIdentity(request));
+        return json({ predictions: await this.service.predictions(repository) });
+    }
+
+    async listObservations(request: { query: { repository?: string | string[] } } & Request): Promise<Response> {
         const repository = requiredRepository(request.query.repository, requestIdentity(request));
         return json({ observations: await this.service.observations(repository) });
-    });
+    }
 }
 
 function guardRows(identity: Identity | undefined, rows: readonly unknown[]): void {

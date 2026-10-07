@@ -1,9 +1,13 @@
+import { useContainer } from "@di-framework/core/container";
 import { Component } from "@di-framework/core/decorators";
-import { Controller } from "@di-framework/http/portable";
+import { Controller, Endpoint, type Json, type RequestSpec, type ResponseSpec } from "@di-framework/http/portable";
+import { HttpError, requestIdentity } from "../../core/auth/access.ts";
+import { asHttpRequest, capRequestBody, router } from "../http.ts";
 import { ForecastService } from "../services/forecast-application-service.ts";
 import { ForecastInputError } from "../services/forecast-service.ts";
 import { RoadmapDetectionService } from "../services/roadmap-detection-service.ts";
-import { HttpError, requestIdentity } from "../../core/auth/access.ts";
+
+const FORECAST_LIMIT = 2 * 1024 * 1024;
 
 @Controller()
 export class ForecastController {
@@ -12,51 +16,62 @@ export class ForecastController {
         @Component(RoadmapDetectionService) private readonly detection: RoadmapDetectionService,
     ) {}
 
-    async handle(request: Request): Promise<Response | undefined> {
-        const path = new URL(request.url).pathname;
-        if (
-            request.method !== "POST" ||
-            !["/v1/estimates", "/v1/backtests", "/v1/roadmap-validations", "/v1/roadmap-detections"].includes(path)
-        )
-            return undefined;
-        const identity = requestIdentity(request);
-        const content = await readJson(request);
-        if (path === "/v1/roadmap-validations") return Response.json(this.service.validate(content, identity));
-        if (path === "/v1/roadmap-detections") return Response.json(await this.detection.detect(content, identity));
-        if (path === "/v1/estimates") return Response.json(await this.service.estimate(content, identity));
-        return Response.json(await this.service.backtest(content, identity));
+    @Endpoint({ summary: "Validate a roadmap without recording" })
+    static validate = router.post<RequestSpec<Json<unknown>>, ResponseSpec<unknown>>(
+        "/v1/roadmap-validations",
+        (request) => useContainer().resolve(ForecastController).validate(asHttpRequest(request)),
+        { use: [forecastBody] },
+    );
+
+    @Endpoint({ summary: "Detect roadmap structure" })
+    static detect = router.post<RequestSpec<Json<unknown>>, ResponseSpec<unknown>>(
+        "/v1/roadmap-detections",
+        (request) => useContainer().resolve(ForecastController).detect(asHttpRequest(request)),
+        { use: [forecastBody] },
+    );
+
+    @Endpoint({ summary: "Calculate a roadmap estimate" })
+    static estimate = router.post<RequestSpec<Json<unknown>>, ResponseSpec<unknown>>(
+        "/v1/estimates",
+        (request) => useContainer().resolve(ForecastController).estimate(asHttpRequest(request)),
+        { use: [forecastBody] },
+    );
+
+    @Endpoint({ summary: "Backtest a roadmap estimate against history" })
+    static backtest = router.post<RequestSpec<Json<unknown>>, ResponseSpec<unknown>>(
+        "/v1/backtests",
+        (request) => useContainer().resolve(ForecastController).backtest(asHttpRequest(request)),
+        { use: [forecastBody] },
+    );
+
+    validate(request: JsonRequest): Response {
+        return Response.json(this.service.validate(jsonContent(request.content), requestIdentity(request)));
+    }
+
+    async detect(request: JsonRequest): Promise<Response> {
+        return Response.json(await this.detection.detect(jsonContent(request.content), requestIdentity(request)));
+    }
+
+    async estimate(request: JsonRequest): Promise<Response> {
+        return Response.json(await this.service.estimate(jsonContent(request.content), requestIdentity(request)));
+    }
+
+    async backtest(request: JsonRequest): Promise<Response> {
+        return Response.json(await this.service.backtest(jsonContent(request.content), requestIdentity(request)));
     }
 }
 
-async function readJson(request: Request): Promise<unknown> {
-    if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json")
-        throw new HttpError("content-type must be application/json", 415);
-    const limit = 2 * 1024 * 1024;
-    if (Number(request.headers.get("content-length")) > limit)
-        throw new HttpError("forecast request is limited to 2 MiB", 413);
-    const reader = request.body?.getReader();
-    if (!reader) throw new ForecastInputError("JSON body is required");
-    const decoder = new TextDecoder();
-    let size = 0;
-    let text = "";
-    try {
-        for (;;) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            size += value.byteLength;
-            if (size > limit) {
-                await reader.cancel();
-                throw new HttpError("forecast request is limited to 2 MiB", 413);
-            }
-            text += decoder.decode(value, { stream: true });
-        }
-        text += decoder.decode();
-    } finally {
-        reader.releaseLock();
-    }
-    try {
-        return JSON.parse(text);
-    } catch {
+type JsonRequest = Request & { content: unknown };
+
+async function forecastBody(request: Request): Promise<void> {
+    const type = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+    if (type !== "application/json") throw new HttpError("content-type must be application/json", 415);
+    await capRequestBody(request, FORECAST_LIMIT, "forecast request is limited to 2 MiB");
+}
+
+function jsonContent(content: unknown): unknown {
+    if (content === undefined) throw new ForecastInputError("JSON body is required");
+    if (typeof content === "string" || content instanceof FormData)
         throw new ForecastInputError("body must be valid JSON");
-    }
+    return content;
 }
