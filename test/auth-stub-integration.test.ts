@@ -1,11 +1,11 @@
-import { describe, expect, it } from "bun:test";
-import { AuthRepository } from "../src/app/repositories/auth-repository.ts";
-import { AuthService } from "../src/app/services/auth-service.ts";
-import { BunSqlDatabase } from "../src/core/persistence/sqlite.ts";
-import { createStubAuthServer } from "../stub-auth-server/src/server.ts";
 import { Database } from "bun:sqlite";
+import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { AuthRepository } from "../src/app/repositories/auth-repository.ts";
+import { type AuthConfig, AuthService } from "../src/app/services/auth-service.ts";
+import { BunSqlDatabase } from "../src/core/persistence/sqlite.ts";
+import { createStubAuthServer } from "../stub-auth-server/src/server.ts";
 
 describe("Worker AuthService integration with Stub Auth Server", () => {
     const stub = createStubAuthServer({
@@ -16,13 +16,11 @@ describe("Worker AuthService integration with Stub Auth Server", () => {
         githubAppId: 5200437,
     });
 
-    const config = {
+    const config: AuthConfig = {
         PUBLIC_API_URL: "http://localhost:8787",
         GITHUB_APP_ID: "5200437",
         GITHUB_APP_SLUG: "era-roadmap",
         GITHUB_CLIENT_ID: "dev-client",
-        GITHUB_CLIENT_SECRET: "dev-secret",
-        AUTH_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         GITHUB_URL: "http://localhost:8080",
     };
 
@@ -38,7 +36,15 @@ describe("Worker AuthService integration with Stub Auth Server", () => {
         return stub.fetch(req);
     }) as typeof fetch;
 
-    const service = new AuthService(store, config, fetchImpl);
+    const service = new AuthService(
+        store,
+        config,
+        {
+            clientSecret: () => "dev-secret",
+            authSecret: () => "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        },
+        fetchImpl,
+    );
 
     it("completes full login flow from CLI start to ERA token issuance using stub server", async () => {
         // 1. CLI begins login

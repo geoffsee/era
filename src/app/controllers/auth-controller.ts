@@ -1,9 +1,9 @@
+import { checkRequestOrigin } from "@di-framework/auth";
+import { requireAuth } from "@di-framework/auth/http";
 import { Component } from "@di-framework/core/decorators";
 import { Controller } from "@di-framework/http/portable";
-import { requireAuth } from "@di-framework/auth/http";
-import { checkRequestOrigin } from "@di-framework/auth";
-import { eraStrategy, requestIdentity, HttpError } from "../../core/auth/access.ts";
-import { WORKER_SETTINGS, type WorkerSettings } from "../configuration.ts";
+import { eraStrategy, HttpError, requestIdentity } from "../../core/auth/access.ts";
+import { API_TOKEN } from "../configuration.ts";
 import { AuthService, authFailure } from "../services/auth-service.ts";
 
 const escapeHtml = (value: string) =>
@@ -23,6 +23,10 @@ export function githubFormAction(githubUrl?: string): string {
     const origin = authorizationOrigin(githubUrl);
     if (origin && !sources.includes(origin)) sources.push(origin);
     return sources.join(" ");
+}
+/** Browser mutations must present this origin. Sec-Fetch-Site alone is not an allowlist. */
+function requireBrowserOrigin(request: Request, origin: string): void {
+    if (request.headers.get("origin") !== origin) throw new HttpError("Invalid browser origin", 403);
 }
 function authorizationOrigin(githubUrl?: string): string | undefined {
     if (!githubUrl) return undefined;
@@ -100,7 +104,7 @@ async function form(request: Request): Promise<URLSearchParams> {
 export class AuthController {
     constructor(
         @Component(AuthService) private readonly service: AuthService,
-        @Component(WORKER_SETTINGS) private readonly settings: WorkerSettings,
+        @Component(API_TOKEN) private readonly apiToken: () => string,
     ) {}
 
     /** Mounted under /auth/* once login is configured. */
@@ -130,8 +134,7 @@ export class AuthController {
                     service.config.GITHUB_URL,
                 );
             if (path === "/auth/github/start" && request.method === "POST") {
-                if (!checkRequestOrigin(request, { allowedOrigins: [service.origin], requireOriginHeader: true }))
-                    throw new HttpError("Invalid browser origin", 403);
+                requireBrowserOrigin(request, service.origin);
                 const result = await service.startBrowser((await form(request)).get("code") ?? "", ip);
                 return new Response(null, {
                     status: 302,
@@ -150,6 +153,7 @@ export class AuthController {
                 );
             }
             if (path === "/auth/cli/approve" && request.method === "POST") {
+                requireBrowserOrigin(request, service.origin);
                 const input = await form(request);
                 try {
                     await service.approve(request, input.get("csrf") ?? "", input.get("decision") ?? "");
@@ -167,7 +171,7 @@ export class AuthController {
             if (path === "/auth/tokens" || /^\/auth\/tokens\/[^/]+$/.test(path)) {
                 const rejection = await requireAuth({
                     strategy: eraStrategy({
-                        apiToken: this.settings.apiToken,
+                        apiToken: this.apiToken,
                         audience: service.origin,
                         authenticateEra: (req) => service.identity(req, false),
                     }),

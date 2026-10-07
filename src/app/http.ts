@@ -3,7 +3,7 @@ import { useContainer } from "@di-framework/core/container";
 import { json, TypedRouter } from "@di-framework/http/portable";
 import { eraStrategy, HttpError } from "../core/auth/access.ts";
 import { InputError } from "../core/tracking/model.ts";
-import { WORKER_SETTINGS, type WorkerSettings } from "./configuration.ts";
+import { API_TOKEN, WORKER_SETTINGS, type WorkerSettings } from "./configuration.ts";
 import { AuthController } from "./controllers/auth-controller.ts";
 import { ForecastController } from "./controllers/forecast-controller.ts";
 import { TrackingController } from "./controllers/tracking-controller.ts";
@@ -23,10 +23,10 @@ const router = TypedRouter({
             } catch {
                 throw new HttpError("Forecast storage is unavailable; retry", 503);
             }
-            const { apiToken, oidcAudience, auth } = settings();
+            const { oidcAudience, auth } = settings();
             return requireAuthExcept([/^\/health$/, /^\/auth\//], {
                 strategy: eraStrategy({
-                    apiToken,
+                    apiToken: () => container.resolve<() => string>(API_TOKEN)(),
                     audience: oidcAudience ?? new URL(request.url).origin,
                     authenticateEra: auth ? (req) => container.resolve(AuthService).identity(req) : undefined,
                 }),

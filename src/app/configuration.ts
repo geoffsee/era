@@ -8,7 +8,7 @@ import {
 import { CloudflareEnvironment } from "@di-framework/cloudflare";
 import { Bean, Configuration } from "@di-framework/core/decorators";
 import type { SqlDatabase } from "../core/persistence/database.ts";
-import type { AuthConfig } from "./services/auth-service.ts";
+import type { AuthConfig, AuthSecretSource } from "./services/auth-service.ts";
 
 /** Worker bindings declared in wrangler.jsonc and secrets. */
 export type Env = Partial<AuthConfig> & {
@@ -16,6 +16,8 @@ export type Env = Partial<AuthConfig> & {
     /** Workers AI binding; enables in-context inference without a provider key. */
     AI?: unknown;
     API_TOKEN?: string;
+    GITHUB_CLIENT_SECRET?: string;
+    AUTH_SECRET?: string;
     OIDC_AUDIENCE?: string;
     /** Preferred inference provider; the model defaults to DEFAULT_CHAT_MODEL. */
     ANTHROPIC_API_KEY?: string;
@@ -31,28 +33,29 @@ export const CLOUDFLARE_BINDING_OPTIONS = { secretNames: SECRET_NAMES, localFall
 
 /** The opened D1 handle; the Worker runtime creates it outside the container. */
 export const SQL_DATABASE = "era.sql-database";
-/** Request authentication settings. */
+/** Request authentication settings. Secrets are not copied onto this object. */
 export const WORKER_SETTINGS = "era.worker-settings";
 /** GitHub login configuration, or undefined when login is disabled on this Worker. */
 export const AUTH_CONFIG = "era.auth-config";
+/** Reads GITHUB_CLIENT_SECRET and AUTH_SECRET from the Worker bindings at use. */
+export const AUTH_SECRETS = "era.auth-secrets";
+/** Reads API_TOKEN from the Worker bindings at use. */
+export const API_TOKEN = "era.api-token";
 /** Chat model for in-context inference, or undefined when neither a provider key nor an AI binding exists. */
 export const CHAT_MODEL = "era.chat-model";
 
 export const DEFAULT_CHAT_MODEL = "claude-opus-5-5";
 
 export type WorkerSettings = {
-    /** Admin bearer token; empty disables admin access. */
-    apiToken: string;
     /** OIDC audience for GitHub Actions tokens; defaults to the request origin. */
     oidcAudience?: string;
-    /** Present only when PUBLIC_API_URL is bound. */
+    /** Present only when PUBLIC_API_URL is bound. Contains no secrets. */
     auth?: AuthConfig;
 };
 
 export function workerSettings(bindings: CloudflareEnvironment): WorkerSettings {
     const publicApiUrl = text(bindings, "PUBLIC_API_URL");
     return {
-        apiToken: text(bindings, "API_TOKEN") ?? "",
         oidcAudience: text(bindings, "OIDC_AUDIENCE"),
         auth: publicApiUrl
             ? {
@@ -60,8 +63,6 @@ export function workerSettings(bindings: CloudflareEnvironment): WorkerSettings 
                   GITHUB_APP_ID: text(bindings, "GITHUB_APP_ID") ?? "",
                   GITHUB_APP_SLUG: text(bindings, "GITHUB_APP_SLUG") ?? "",
                   GITHUB_CLIENT_ID: text(bindings, "GITHUB_CLIENT_ID") ?? "",
-                  GITHUB_CLIENT_SECRET: text(bindings, "GITHUB_CLIENT_SECRET") ?? "",
-                  AUTH_SECRET: text(bindings, "AUTH_SECRET") ?? "",
                   GITHUB_URL: text(bindings, "GITHUB_URL"),
               }
             : undefined,
@@ -89,6 +90,19 @@ export class WorkerConfiguration {
         return settings.auth;
     }
 
+    @Bean(AUTH_SECRETS, { dependencies: [CloudflareEnvironment] })
+    authSecrets(bindings: CloudflareEnvironment): AuthSecretSource {
+        return {
+            clientSecret: () => requiredText(bindings, "GITHUB_CLIENT_SECRET"),
+            authSecret: () => requiredText(bindings, "AUTH_SECRET"),
+        };
+    }
+
+    @Bean(API_TOKEN, { dependencies: [CloudflareEnvironment] })
+    apiToken(bindings: CloudflareEnvironment): () => string {
+        return () => text(bindings, "API_TOKEN") ?? "";
+    }
+
     /** An Anthropic key wins; otherwise the Workers AI binding serves inference; otherwise inference is off. */
     @Bean(CHAT_MODEL, { dependencies: [CloudflareEnvironment] })
     chatModel(bindings: CloudflareEnvironment): ChatModel | undefined {
@@ -105,4 +119,10 @@ export class WorkerConfiguration {
 function text(bindings: CloudflareEnvironment, name: string): string | undefined {
     const value = bindings.getBinding(name)?.binding;
     return typeof value === "string" && value ? value : undefined;
+}
+
+function requiredText(bindings: CloudflareEnvironment, name: string): string {
+    const value = text(bindings, name);
+    if (!value) throw new Error(`${name} is not configured`);
+    return value;
 }
