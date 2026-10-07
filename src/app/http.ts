@@ -4,17 +4,17 @@ import { json, TypedRouter } from "@di-framework/http/portable";
 import { eraStrategy, HttpError } from "../core/auth/access.ts";
 import { InputError } from "../core/tracking/model.ts";
 import { API_TOKEN, WORKER_SETTINGS, type WorkerSettings } from "./configuration.ts";
-import { AuthController } from "./controllers/auth-controller.ts";
-import { ForecastController } from "./controllers/forecast-controller.ts";
-import { TrackingController } from "./controllers/tracking-controller.ts";
 import { ForecastSchema } from "./repositories/forecast-schema.ts";
 import { AuthService, authFailure } from "./services/auth-service.ts";
 
 const container = useContainer();
-const settings = () => container.resolve<WorkerSettings>(WORKER_SETTINGS);
+export const settings = () => container.resolve<WorkerSettings>(WORKER_SETTINGS);
 
-/** Storage readiness, then the bearer guard, then controllers resolved from the container. */
-const router = TypedRouter({
+/**
+ * One router for the Worker. Controllers declare `@Endpoint` routes on it.
+ * `routes.ts` imports those controllers so the static routes register, then adds the 404.
+ */
+export const router = TypedRouter({
     before: [
         async (input) => {
             const request = input as Request;
@@ -38,22 +38,32 @@ const router = TypedRouter({
     finally: [applyAuthHeaders],
 });
 
-router.all("/auth/*", async (request: Request) => {
-    if (!settings().auth) return authFailure(new HttpError("GitHub login is not configured on this Worker", 503));
+/** The value passed to a route handler is the Fetch request. The router's declared type omits Request methods. */
+export function asHttpRequest<T>(request: T): T & Request {
+    return request as T & Request;
+}
+
+/** Stops a request whose body exceeds `limit` before the router parses it. */
+export async function capRequestBody(request: Request, limit: number, message: string): Promise<void> {
+    const declared = request.headers.get("content-length");
+    if (declared !== null && Number(declared) > limit) throw new HttpError(message, 413);
+    const reader = request.clone().body?.getReader();
+    if (!reader) return;
+    let size = 0;
     try {
-        return await container.resolve(AuthController).handle(request);
-    } catch (error) {
-        // Resolving AuthService validates the GitHub App bindings; misconfiguration reads as an auth outage.
-        return authFailure(error);
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > limit) {
+                await reader.cancel();
+                throw new HttpError(message, 413);
+            }
+        }
+    } finally {
+        reader.releaseLock();
     }
-});
-router.all(
-    "*",
-    async (request: Request) =>
-        (await container.resolve(ForecastController).handle(request)) ??
-        (await container.resolve(TrackingController).fetch(request)) ??
-        json({ error: "not found" }, { status: 404 }),
-);
+}
 
 /** The one place domain errors become HTTP statuses. */
 function failure(error: unknown): Response {

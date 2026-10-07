@@ -10,8 +10,8 @@ import {
 } from "./configuration.ts";
 import { ForecastController } from "./controllers/forecast-controller.ts";
 import { TrackingController } from "./controllers/tracking-controller.ts";
-import router from "./http.ts";
 import { AuthRepository } from "./repositories/auth-repository.ts";
+import router from "./routes.ts";
 
 const container = useContainer();
 
