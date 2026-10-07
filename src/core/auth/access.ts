@@ -1,4 +1,4 @@
-import { authenticated, authFailed, createPrincipal, noCredential, type AuthStrategy } from "@di-framework/auth";
+import { type AuthStrategy, authenticated, authFailed, createPrincipal, noCredential } from "@di-framework/auth";
 import { requirePrincipal } from "@di-framework/auth/http";
 import { verifyGitHubOidc } from "./oidc.ts";
 
@@ -28,7 +28,8 @@ export function assertAccess(identity: Identity, repository: string): void {
 }
 
 export type CredentialOptions = {
-    apiToken: string;
+    /** Admin bearer token, or a function that reads it for this authentication and does not retain it. */
+    apiToken: string | (() => string);
     audience: string;
     authenticateEra?: (request: Request) => Promise<Identity>;
     verifyOidc?: (token: string, audience: string) => Promise<{ repository: string; workflowRef?: string }>;
@@ -45,7 +46,8 @@ export function eraStrategy(options: CredentialOptions): AuthStrategy {
             const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
             if (!token) return authFailed("malformed_credential", "Expected a bearer credential");
             let identity: Identity;
-            if (options.apiToken && safeEqual(token, options.apiToken)) identity = { kind: "admin" };
+            const apiToken = typeof options.apiToken === "function" ? options.apiToken() : options.apiToken;
+            if (apiToken && safeEqual(token, apiToken)) identity = { kind: "admin" };
             else if (token.startsWith("era_") && options.authenticateEra) {
                 try {
                     identity = await options.authenticateEra(request);

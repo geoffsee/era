@@ -1,6 +1,6 @@
+import { expect, test } from "bun:test";
 import { AnthropicChatModel, WorkersAiChatModel } from "@di-framework/ai";
 import { CloudflareEnvironment } from "@di-framework/cloudflare";
-import { expect, test } from "bun:test";
 import { createTestDatabase } from "../../test/helpers/accuracy.ts";
 import {
     CLOUDFLARE_BINDING_OPTIONS,
@@ -22,18 +22,29 @@ test("the connector classifies declared secrets apart from vars and hands beans 
     expect(env.getBinding("PUBLIC_API_URL")?.kind).toBe("var");
     const configuration = new WorkerConfiguration();
     expect(configuration.database(env)).toBe(db);
-    expect(workerSettings(env)).toEqual({
-        apiToken: "admin",
+    const configured = bindings({
+        DB: db,
+        API_TOKEN: "admin-secret",
+        PUBLIC_API_URL: "https://era.test",
+        GITHUB_CLIENT_SECRET: "client-secret",
+        AUTH_SECRET: "a".repeat(32),
+        OIDC_AUDIENCE: "",
+    });
+    const settings = workerSettings(configured);
+    expect(settings).toEqual({
         oidcAudience: undefined,
         auth: {
             PUBLIC_API_URL: "https://era.test",
             GITHUB_APP_ID: "",
             GITHUB_APP_SLUG: "",
             GITHUB_CLIENT_ID: "",
-            GITHUB_CLIENT_SECRET: "",
-            AUTH_SECRET: "",
         },
     });
+    expect(JSON.stringify(settings)).not.toContain("admin-secret");
+    expect(JSON.stringify(settings)).not.toContain("client-secret");
+    expect(JSON.stringify(settings)).not.toContain("a".repeat(32));
+    expect(new WorkerConfiguration().apiToken(configured)()).toBe("admin-secret");
+    expect(new WorkerConfiguration().authSecrets(configured).clientSecret()).toBe("client-secret");
     expect(workerSettings(bindings({})).auth).toBeUndefined();
     expect(configuration.database(bindings({}))).toBeUndefined();
 });

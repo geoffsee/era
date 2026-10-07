@@ -1,5 +1,5 @@
-import { useContainer } from "@di-framework/core/container";
 import { expect, test } from "bun:test";
+import { useContainer } from "@di-framework/core/container";
 import { env } from "../../test/cloudflare.ts";
 import { createTestAccuracyService } from "../../test/helpers/accuracy.ts";
 import { handleRequest, startWorker } from "../../test/helpers/http.ts";
@@ -9,6 +9,39 @@ import { loadHistoricalData } from "./repositories/historical-data-repository.ts
 import { AccuracyService } from "./services/accuracy-service.ts";
 
 const history = await loadHistoricalData(new URL("../../test/fixtures/forecast-history", import.meta.url).pathname);
+
+test("fetch keeps protected routes behind the bearer guard when the path is disguised", async () => {
+    const accuracyService = createTestAccuracyService();
+    const body = JSON.stringify({
+        predictions: [{ repository: "acme/app", subject: "issue:1", model: "test", metric: "tokens", predicted: 1 }],
+    });
+    const paths = [
+        "/v1/predictions",
+        "/v1/predictions/",
+        "/auth/../v1/predictions",
+        "/health/../v1/predictions",
+        "//v1/predictions",
+        "/v1//predictions",
+        "/AUTH/cli/../v1/predictions",
+        "/auth/%2e%2e%2fv1/predictions",
+        "/v1/predictions%0a",
+        "/health",
+    ];
+    for (const path of paths) {
+        const response = await handleRequest(
+            new Request(`https://era.test${path}`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body,
+            }),
+            { accuracyService, apiToken: "test" },
+        );
+        expect(response.status).not.toBe(200);
+    }
+    const health = await handleRequest(new Request("https://era.test/health"), { accuracyService, apiToken: "test" });
+    expect(health.status).toBe(200);
+    expect(await accuracyService.repositories()).toEqual([]);
+});
 
 test("HTTP guard challenges credentials before reading a protected request body", async () => {
     const accuracyService = createTestAccuracyService();

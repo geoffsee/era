@@ -3,6 +3,7 @@ import { bindCloudflareBindings } from "@di-framework/cloudflare";
 import { ApplicationContext } from "@di-framework/core/application-context";
 import { type Container, useContainer } from "@di-framework/core/container";
 import {
+    API_TOKEN,
     CHAT_MODEL,
     CLOUDFLARE_BINDING_OPTIONS,
     SQL_DATABASE,
@@ -15,13 +16,13 @@ import { ForecastController } from "../../src/app/controllers/forecast-controlle
 import { TrackingController } from "../../src/app/controllers/tracking-controller.ts";
 import worker from "../../src/app/main.ts";
 import { AuthRepository } from "../../src/app/repositories/auth-repository.ts";
-import { ForecastSchema } from "../../src/app/repositories/forecast-schema.ts";
 import { CalibrationRepository } from "../../src/app/repositories/calibration-repository.ts";
+import { ForecastSchema } from "../../src/app/repositories/forecast-schema.ts";
 import { ObservationRepository } from "../../src/app/repositories/observation-repository.ts";
 import { PredictionRepository } from "../../src/app/repositories/prediction-repository.ts";
 import { AccuracyService } from "../../src/app/services/accuracy-service.ts";
-import { CalibrationService } from "../../src/app/services/calibration-service.ts";
 import { AuthService } from "../../src/app/services/auth-service.ts";
+import { CalibrationService } from "../../src/app/services/calibration-service.ts";
 import { ForecastService } from "../../src/app/services/forecast-application-service.ts";
 import { InferenceService } from "../../src/app/services/inference-service.ts";
 import { RoadmapDetectionService } from "../../src/app/services/roadmap-detection-service.ts";
@@ -62,10 +63,10 @@ export function handleRequest(request: Request, deps: TrackerDeps): Promise<Resp
     for (const component of WORKER_GRAPH) container.register(component);
     container.registerValue(SQL_DATABASE, env.DB);
     container.registerValue<WorkerSettings>(WORKER_SETTINGS, {
-        apiToken: deps.apiToken,
         oidcAudience: deps.audience,
         auth: deps.auth?.config,
     });
+    container.registerValue<() => string>(API_TOKEN, () => deps.apiToken);
     container.registerValue(AccuracyService, deps.accuracyService);
     container.registerValue(AuthService, deps.auth);
     container.registerValue(CHAT_MODEL, deps.chatModel);

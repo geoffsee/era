@@ -1,4 +1,3 @@
-import { Component, Container } from "@di-framework/core/decorators";
 import {
     AuthError,
     apiKeyStrategy,
@@ -18,18 +17,23 @@ import {
     toSecretBytes,
 } from "@di-framework/auth";
 import { githubProvider, type OAuthTokens, oauthClient } from "@di-framework/auth/oauth";
+import { Component, Container } from "@di-framework/core/decorators";
 import { HttpError, type Identity } from "../../core/auth/access.ts";
-import { AUTH_CONFIG } from "../configuration.ts";
+import { AUTH_CONFIG, AUTH_SECRETS } from "../configuration.ts";
 import { AuthRepository, type Grant, type RepositoryKey } from "../repositories/auth-repository.ts";
 
+/** Non-secret GitHub login settings. Client secret and AUTH_SECRET are not fields of this object. */
 export interface AuthConfig {
     PUBLIC_API_URL: string;
     GITHUB_APP_ID: string;
     GITHUB_APP_SLUG: string;
     GITHUB_CLIENT_ID: string;
-    GITHUB_CLIENT_SECRET: string;
-    AUTH_SECRET: string;
     GITHUB_URL?: string;
+}
+/** Reads each secret at the operation that needs it. Callers do not keep the returned string. */
+export interface AuthSecretSource {
+    clientSecret(): string;
+    authSecret(): string;
 }
 type Connection = {
     login: string;
@@ -53,6 +57,22 @@ export type LoginFlow = {
 const FLOW_SECONDS = 600;
 const KEY_SECONDS = 30 * 86400;
 const GITHUB_URL_ERROR = "GITHUB_URL must be an HTTPS URL (or HTTP loopback for development)";
+
+/** Puts the client secret on a token request body and does not retain it after the call. */
+function withClientSecret(
+    input: string | URL | Request,
+    init: RequestInit | undefined,
+    clientSecret: () => string,
+): RequestInit | undefined {
+    const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+    if (!url.includes("/login/oauth/access_token")) return init;
+    const body = init?.body;
+    if (typeof body !== "string" && !(body instanceof URLSearchParams)) return init;
+    const params = new URLSearchParams(body);
+    if (!params.has("grant_type")) return init;
+    params.set("client_secret", clientSecret());
+    return { ...init, body: params };
+}
 
 /** Origin used for OAuth and GitHub API calls. Non-loopback HTTP would send bearer tokens in cleartext. */
 function githubBaseUrl(githubUrl?: string): string | undefined {
@@ -80,6 +100,7 @@ export class AuthService {
     constructor(
         @Component(AuthRepository) readonly store: AuthRepository,
         @Component(AUTH_CONFIG) readonly config: AuthConfig,
+        @Component(AUTH_SECRETS) private readonly secrets: AuthSecretSource,
         readonly fetchImpl: typeof fetch = fetch,
     ) {
         const url = new URL(config.PUBLIC_API_URL);
@@ -97,16 +118,16 @@ export class AuthService {
             !/^\d+$/.test(config.GITHUB_APP_ID) ||
             !/^[a-zA-Z0-9-]+$/.test(config.GITHUB_APP_SLUG) ||
             !config.GITHUB_CLIENT_ID ||
-            !config.GITHUB_CLIENT_SECRET
+            !this.secrets.clientSecret()
         )
             throw new Error("GitHub App configuration is incomplete");
-        toSecretBytes(config.AUTH_SECRET);
+        const authSecret = this.secrets.authSecret();
+        toSecretBytes(authSecret);
         this.origin = url.origin;
-        this.cryptoKey = deriveAesKey(config.AUTH_SECRET, "era:v1:github-credentials");
+        this.cryptoKey = deriveAesKey(authSecret, "era:v1:github-credentials");
         this.githubBase = githubBaseUrl(config.GITHUB_URL);
         const baseProvider = githubProvider({
             clientId: config.GITHUB_CLIENT_ID,
-            clientSecret: config.GITHUB_CLIENT_SECRET,
             redirectUri: `${this.origin}/auth/github/callback`,
             scopes: [],
         });
@@ -123,8 +144,26 @@ export class AuthService {
             fetch: (async (input: string | URL | Request, init?: RequestInit) => {
                 const headers = new Headers(init?.headers);
                 headers.set("user-agent", "era");
-                const response = await fetchImpl(input, { ...init, headers, signal: AbortSignal.timeout(10000) });
-                if (response.status >= 500 || response.status === 429 || response.headers.has("retry-after"))
+                const requestInit = withClientSecret(input, init, () => this.secrets.clientSecret());
+                let response: Response;
+                try {
+                    // Refuse redirects. A 307 would replay the client secret and authorization code.
+                    response = await fetchImpl(input, {
+                        ...requestInit,
+                        headers,
+                        redirect: "error",
+                        signal: AbortSignal.timeout(10000),
+                    });
+                } catch (error) {
+                    if (error instanceof HttpError) throw error;
+                    throw new HttpError("GitHub authentication is unavailable; retry", 503);
+                }
+                if (
+                    response.status >= 500 ||
+                    response.status === 429 ||
+                    (response.status >= 300 && response.status < 400) ||
+                    response.headers.has("retry-after")
+                )
                     throw new HttpError("GitHub authentication is unavailable; retry", 503);
                 return response;
             }) as typeof fetch,
@@ -138,7 +177,19 @@ export class AuthService {
                 inactivityTimeoutSeconds: FLOW_SECONDS,
             },
         });
-        this.csrf = csrfGuard({ secret: config.AUTH_SECRET, allowedOrigins: [this.origin], requireOriginHeader: true });
+        const csrfOptions = {
+            secret: authSecret,
+            allowedOrigins: [this.origin],
+            requireOriginHeader: true,
+        };
+        this.csrf = csrfGuard(csrfOptions);
+        // The HMAC key is derived during this call. Drop the plaintext once that key exists.
+        void this.csrf.issue("era:csrf-key").then(
+            () => {
+                csrfOptions.secret = "";
+            },
+            () => {},
+        );
     }
     async begin(
         repository: unknown,
@@ -296,11 +347,16 @@ export class AuthService {
         );
     }
     async identity(request: Request, checkAccess = true): Promise<Identity> {
+        // The guard already selected the Authorization bearer token. apiKeyStrategy prefers
+        // x-api-key, so a second header must not be able to replace or shadow that credential.
+        const authorization = request.headers.get("authorization");
+        const credential = new Request(request.url, { headers: authorization ? { authorization } : {} });
         const result = await apiKeyStrategy({
             credentials: this.store.credentials(),
             authorizationScheme: "Bearer",
+            headerName: "x-era-bearer",
             now: this.store.now,
-        }).authenticate(makeContext(request));
+        }).authenticate(makeContext(credential));
         if (result.state !== "authenticated") throw new HttpError("Invalid or expired ERA token; run era login", 401);
         const id = result.principal.claims?.apiKeyId;
         if (typeof id !== "string") throw new HttpError("Invalid ERA token", 401);
@@ -420,6 +476,7 @@ export class AuthService {
             const fetchImpl = this.fetchImpl;
             const apiBase = this.githubBase ?? "https://api.github.com";
             response = await fetchImpl(`${apiBase}${path}`, {
+                redirect: "error",
                 headers: {
                     authorization: `Bearer ${token}`,
                     accept: "application/vnd.github+json",
@@ -440,6 +497,7 @@ export class AuthService {
             throw new HttpError("GitHub access checks are unavailable; retry", 503);
         }
         if (
+            (response.status >= 300 && response.status < 400) ||
             response.status === 429 ||
             response.status >= 500 ||
             response.headers.get("x-ratelimit-remaining") === "0" ||

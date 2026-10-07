@@ -1,26 +1,30 @@
-import { createTestAccuracyService } from "../../../test/helpers/accuracy.ts";
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { base64UrlEncode, hashSecret, sha256 } from "@di-framework/auth";
-import { runCli } from "../../cli/cli.ts";
+import { createTestAccuracyService } from "../../../test/helpers/accuracy.ts";
 import { handleRequest } from "../../../test/helpers/http.ts";
+import { AuthRepository, type RepositoryKey } from "../../app/repositories/auth-repository.ts";
+import {
+    type AuthConfig,
+    type AuthSecretSource,
+    AuthService,
+    type LoginFlow,
+} from "../../app/services/auth-service.ts";
+import { runCli } from "../../cli/cli.ts";
 import { BunSqlDatabase } from "../persistence/sqlite.ts";
 import { credentialId, FileCredentialCache, MemoryCredentialCache } from "./credentials.ts";
-import { type AuthConfig, AuthService, type LoginFlow } from "../../app/services/auth-service.ts";
-import { AuthRepository, type RepositoryKey } from "../../app/repositories/auth-repository.ts";
 
 const config: AuthConfig = {
     PUBLIC_API_URL: "https://era.test",
     GITHUB_APP_ID: "123",
     GITHUB_APP_SLUG: "era-test",
     GITHUB_CLIENT_ID: "Iv.test",
-    GITHUB_CLIENT_SECRET: "test-client-secret",
-    AUTH_SECRET: "s".repeat(32),
 };
-function fixture(overrides: Partial<AuthConfig> = {}) {
+const secrets = { clientSecret: "test-client-secret", authSecret: "s".repeat(32) };
+function fixture(overrides: Partial<AuthConfig> = {}, fetchOverride?: typeof fetch, secretSource?: AuthSecretSource) {
     const active = { ...config, ...overrides };
     const database = new Database(":memory:");
     database.exec(readFileSync(join(import.meta.dir, "../../../migrations/0002_auth.sql"), "utf8"));
@@ -37,43 +41,54 @@ function fixture(overrides: Partial<AuthConfig> = {}) {
         refreshFailure: false,
         refreshOutage: false,
     };
-    const fetchImpl = async function (this: unknown, input: string | URL | Request, init?: RequestInit) {
-        expect(this).toBeUndefined();
-        const url = new URL(String(input));
-        if (active.GITHUB_URL) expect(url.origin).toBe(new URL(active.GITHUB_URL).origin);
-        if (url.pathname === "/login/oauth/access_token") {
-            const fields = new URLSearchParams(String(init?.body));
-            expect(new Headers(init?.headers).get("user-agent")).toBe("era");
-            if (fields.get("grant_type") === "refresh_token") {
-                provider.refreshCalls++;
-                if (provider.refreshOutage) return Response.json({}, { status: 503 });
-                if (provider.refreshFailure) return Response.json({ error: "bad_refresh_token" }, { status: 400 });
-            } else {
-                expect(base64UrlEncode(await sha256(fields.get("code_verifier")!))).toBe(provider.challenge);
-                expect(fields.get("client_secret")).toBe(config.GITHUB_CLIENT_SECRET);
+    const fetchImpl =
+        fetchOverride ??
+        (async function (this: unknown, input: string | URL | Request, init?: RequestInit) {
+            expect(this).toBeUndefined();
+            const url = new URL(String(input));
+            if (active.GITHUB_URL) expect(url.origin).toBe(new URL(active.GITHUB_URL).origin);
+            if (url.pathname === "/login/oauth/access_token") {
+                const fields = new URLSearchParams(String(init?.body));
+                expect(new Headers(init?.headers).get("user-agent")).toBe("era");
+                if (fields.get("grant_type") === "refresh_token") {
+                    provider.refreshCalls++;
+                    if (provider.refreshOutage) return Response.json({}, { status: 503 });
+                    if (provider.refreshFailure) return Response.json({ error: "bad_refresh_token" }, { status: 400 });
+                } else {
+                    expect(base64UrlEncode(await sha256(fields.get("code_verifier")!))).toBe(provider.challenge);
+                    expect(fields.get("client_secret")).toBe(secrets.clientSecret);
+                }
+                return Response.json({
+                    access_token: "provider-access-secret",
+                    refresh_token: "provider-refresh-secret",
+                    expires_in: 28800,
+                    scope: "",
+                    token_type: "bearer",
+                });
             }
-            return Response.json({
-                access_token: "provider-access-secret",
-                refresh_token: "provider-refresh-secret",
-                expires_in: 28800,
-                scope: "",
-                token_type: "bearer",
-            });
-        }
-        if (url.pathname === "/user") return Response.json({ id: provider.userId, login: "octocat", name: "Octocat" });
-        if (provider.outage) return Response.json({}, { status: 503 });
-        if (provider.revoked) return Response.json({}, { status: 401 });
-        if (url.pathname.endsWith("/permission")) return Response.json({ permission: provider.permission });
-        if (url.pathname === "/repos/octo/example")
-            return Response.json({ id: provider.repoId, full_name: "octo/example", owner: { id: 1 } });
-        if (url.pathname === "/user/installations")
-            return Response.json({ installations: [{ id: 55, app_id: 123, account: { id: 1 } }] });
-        if (url.pathname === "/user/installations/55/repositories")
-            return Response.json({ repositories: provider.installed ? [{ id: provider.repoId }] : [] });
-        throw new Error(`Unexpected provider URL ${url.pathname}`);
-    } as typeof fetch;
+            if (url.pathname === "/user")
+                return Response.json({ id: provider.userId, login: "octocat", name: "Octocat" });
+            if (provider.outage) return Response.json({}, { status: 503 });
+            if (provider.revoked) return Response.json({}, { status: 401 });
+            if (url.pathname.endsWith("/permission")) return Response.json({ permission: provider.permission });
+            if (url.pathname === "/repos/octo/example")
+                return Response.json({ id: provider.repoId, full_name: "octo/example", owner: { id: 1 } });
+            if (url.pathname === "/user/installations")
+                return Response.json({ installations: [{ id: 55, app_id: 123, account: { id: 1 } }] });
+            if (url.pathname === "/user/installations/55/repositories")
+                return Response.json({ repositories: provider.installed ? [{ id: provider.repoId }] : [] });
+            throw new Error(`Unexpected provider URL ${url.pathname}`);
+        } as typeof fetch);
     const store = new AuthRepository(new BunSqlDatabase(database), () => clock.now);
-    const service = new AuthService(store, active, fetchImpl);
+    const service = new AuthService(
+        store,
+        active,
+        secretSource ?? {
+            clientSecret: () => secrets.clientSecret,
+            authSecret: () => secrets.authSecret,
+        },
+        fetchImpl,
+    );
     const accuracyService = createTestAccuracyService();
     const request = (path: string, init?: RequestInit) =>
         handleRequest(new Request(`https://era.test${path}`, init), {
@@ -121,7 +136,7 @@ function fixture(overrides: Partial<AuthConfig> = {}) {
                 },
                 body: new URLSearchParams({ decision, csrf: token }),
             });
-        return { decide, callbackPath, cookie };
+        return { decide, callbackPath, cookie, sessionCookie, csrf };
     };
     const poll = (deviceCode: string) =>
         request("/auth/cli/token", {
@@ -433,4 +448,105 @@ test("credential files are atomic and private; explicit credentials override sav
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }
+});
+
+test("the bearer credential is the only credential the fetch guard accepts", async () => {
+    const f = fixture();
+    const key = await f.login();
+    const repositories = (headers: Record<string, string>) => f.request("/v1/repositories", { headers });
+    const displaced = await repositories({
+        authorization: `Bearer ${key.apiToken}`,
+        "x-api-key": "era_not-the-presented-bearer-token",
+    });
+    expect(displaced.status).toBe(200);
+    const substituted = await repositories({
+        authorization: "Bearer era_not-a-valid-token",
+        "x-api-key": key.apiToken,
+    });
+    expect(substituted.status).toBe(401);
+});
+
+test("approval rejects a cross-origin post even when Sec-Fetch-Site claims otherwise", async () => {
+    const f = fixture();
+    const begin = await f.start();
+    const web = await f.browser(begin.userCode);
+    for (const site of ["none", "same-origin"]) {
+        const response = await f.request("/auth/cli/approve", {
+            method: "POST",
+            headers: {
+                cookie: web.sessionCookie,
+                origin: "https://evil.test",
+                "sec-fetch-site": site,
+                "content-type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({ decision: "deny", csrf: web.csrf }),
+        });
+        expect(response.status).toBe(403);
+    }
+    expect((await f.poll(begin.deviceCode)).status).toBe(202);
+});
+
+test("the GitHub token exchange does not follow a redirect with the client secret", async () => {
+    const leaked: string[] = [];
+    const attacker = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+            leaked.push(`${request.method} ${request.headers.get("authorization") ?? ""} ${await request.text()}`);
+            return Response.json({ error: "redirected" }, { status: 400 });
+        },
+    });
+    const github = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch() {
+            return new Response(null, { status: 307, headers: { location: String(attacker.url) } });
+        },
+    });
+    try {
+        const f = fixture({ GITHUB_URL: new URL(github.url).origin }, fetch);
+        const begin = await f.start();
+        const started = await f.request("/auth/github/start", {
+            method: "POST",
+            headers: { origin: config.PUBLIC_API_URL, "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ code: begin.userCode }),
+        });
+        expect(started.status).toBe(302);
+        const authorize = new URL(started.headers.get("location")!);
+        const callback = await f.request(
+            `/auth/github/callback?code=test-code&state=${authorize.searchParams.get("state")}`,
+            { headers: { cookie: started.headers.get("set-cookie")!.split(";")[0]! } },
+        );
+        expect(callback.status).toBe(503);
+        expect(leaked).toEqual([]);
+        expect(await callback.text()).not.toContain(secrets.clientSecret);
+    } finally {
+        attacker.stop(true);
+        github.stop(true);
+    }
+});
+
+test("auth secrets are read for the operation that needs them and are not kept on the service", async () => {
+    let authReads = 0;
+    let clientReads = 0;
+    const f = fixture(undefined, undefined, {
+        authSecret: () => {
+            authReads++;
+            return secrets.authSecret;
+        },
+        clientSecret: () => {
+            clientReads++;
+            return secrets.clientSecret;
+        },
+    });
+    const authReadsAfterConstruction = authReads;
+    expect(authReadsAfterConstruction).toBe(1);
+    const begin = await f.start();
+    const web = await f.browser(begin.userCode);
+    expect((await web.decide()).status).toBe(200);
+    expect(authReads).toBe(authReadsAfterConstruction);
+    expect(clientReads).toBeGreaterThan(1);
+    const retained = JSON.stringify({ config: f.service.config, client: f.service.client });
+    expect(retained).not.toContain(secrets.authSecret);
+    expect(retained).not.toContain(secrets.clientSecret);
 });
