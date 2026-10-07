@@ -21,6 +21,8 @@ import { loadRoadmapIssue, type RoadmapIssue } from "../app/repositories/github-
 import { loadHistoricalData, loadHistoricalPullRequests } from "../app/repositories/historical-data-repository.ts";
 import type { RoadmapConfig } from "../core/roadmap/roadmap-format.ts";
 import type { AccuracyReport, Observation, Prediction } from "../core/tracking/model.ts";
+import { configuredAgents } from "../tools/token-counter-mcp/agents/config.ts";
+import { serve as serveMcp } from "../tools/token-counter-mcp/mcp.ts";
 
 type Io = {
     fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -52,6 +54,8 @@ const HELP = `era tracks estimate accuracy for any owner/name repository.
   era record-estimate --repository owner/name [--body roadmap.md --history historical-data --titles titles.json]
   era estimate --repository owner/name [--issue N] [--body roadmap.md --titles titles.json --descriptions bodies.json --history historical-data --plan forecast-plan.json]
 
+  era --mcp
+
 ERA_API_URL and ERA_API_TOKEN select the Cloudflare tracker. --api and --token override them.
 Saved login credentials are used when flags and environment variables are absent.
 Roadmap commands load era.config.json from the current directory; --config selects another file.
@@ -61,10 +65,21 @@ estimate sends a snapshot to the authenticated Worker without recording predicti
 record-estimate calculates and records on the Worker. Dollar predictions use the versioned usd_subtotal metric.
 An inference section in era.config.json asks the Worker's model to infer extra per-item fields in context; estimate
 reports them and record-estimate records the numeric ones. --descriptions supplies issue bodies for saved snapshots.
+era --mcp serves the era-tokens MCP on stdin and stdout. Point an agent at \`bunx @era.js/era --mcp\`.
 `;
 
 export async function runCli(argv: string[], io: Io = defaultIo()): Promise<number> {
     const [command, ...rest] = argv;
+    if (command === "--mcp") {
+        try {
+            const flags = parseFlags(rest);
+            await serveMcp(flags.get("config"));
+            return 0;
+        } catch (error) {
+            io.stderr(error instanceof Error ? error.message : "command failed");
+            return 1;
+        }
+    }
     if (!command || command === "help" || command === "--help" || command === "-h") {
         io.stdout(HELP);
         return 0;
@@ -264,10 +279,11 @@ function loadEraConfig(flags: Map<string, string>): EraConfig | undefined {
         typeof config !== "object" ||
         Array.isArray(config) ||
         config.version !== 1 ||
-        (!config.roadmap && !config.inference) ||
-        Object.keys(config).some((key) => !["version", "roadmap", "inference"].includes(key))
+        (!config.roadmap && !config.inference && !config.agents) ||
+        Object.keys(config).some((key) => !["version", "roadmap", "inference", "agents"].includes(key))
     )
-        throw new Error("ERA config must contain version: 1 and roadmap or inference configuration");
+        throw new Error("ERA config must contain version: 1 and roadmap, inference, or agents configuration");
+    configuredAgents(config);
     return { roadmap: config.roadmap, inference: config.inference };
 }
 
